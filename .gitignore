@@ -1,0 +1,46 @@
+# ======================
+# Python (backend)
+# ======================
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ======================
+# Node / Electron / Frontend
+# ======================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+
+# Electron
+electron-app/dist/
+
+# ======================
+# Env files
+# ======================
+.env
+.env.*
+!.env.example
+
+# ======================
+# Vercel
+# ======================
+.vercel
+
+# ======================
+# OS / Editor
+# ======================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

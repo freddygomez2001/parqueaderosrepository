@@ -1,0 +1,146 @@
+{
+  "name": "sistema-parqueaderos-desktop",
+  "version": "1.0.0",
+  "description": "Sistema de gestión de parqueaderos",
+  "main": "main.js",
+  "scripts": {
+    "electron:start": "electron .",
+    "dev": "electron .",
+    "start": "npm run dev",
+    "prebuild": "cd ../frontend && npm run build",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.freddygomez.parqueaderos",
+    "productName": "Sistema Parqueaderos",
+    "directories": {
+      "output": "dist",
+      "buildResources": "resources"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "!node_modules"
+    ],
+    "extraResources": [
+      {
+        "from": "../venv",
+        "to": "venv",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc"
+        ]
+      },
+      {
+        "from": "../backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!venv/**",
+          "!.venv/**",
+          "!.git/**",
+          "!data/**",
+          "!*.db"
+        ]
+      },
+      {
+        "from": "../frontend/.next",
+        "to": "frontend/.next",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../frontend/public",
+        "to": "frontend/public",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../frontend/node_modules",
+        "to": "frontend/node_modules",
+        "filter": [
+          "next/**/*",
+          "react/**/*",
+          "react-dom/**/*",
+          "@next/**/*",
+          "@swc/**/*",
+          "styled-jsx/**/*",
+          "@img/**/*",
+          "client-only/**/*",
+          "detect-libc/**/*",
+          "semver/**/*",
+          "sharp/**/*",
+          "typescript/**/*"
+        ]
+      },
+      {
+        "from": "../frontend/server-production.js",
+        "to": "frontend/server-production.js"
+      },
+      {
+        "from": "../frontend/start-server.bat",
+        "to": "frontend/start-server.bat"
+      },
+      {
+        "from": "../frontend/package.json",
+        "to": "frontend/package.json"
+      },
+      {
+        "from": "../frontend/next.config.mjs",
+        "to": "frontend/next.config.mjs"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Sistema Parqueaderos"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "resources/icon.icns"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "resources/icon.png",
+      "category": "Office"
+    },
+    "asar": true,
+    "asarUnpack": [
+      "resources/venv/**/*",
+      "resources/backend/**/*",
+      "resources/frontend/**/*"
+    ]
+  },
+  "author": "Freddy Gomez",
+  "license": "ISC",
+  "dependencies": {
+    "concurrently": "^9.2.1",
+    "wait-on": "^9.0.3"
+  },
+  "devDependencies": {
+    "cross-env": "^10.1.0",
+    "electron": "^40.0.0",
+    "electron-builder": "^26.4.0"
+  }
+}
