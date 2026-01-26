@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.config import get_db
 from app.servicios.vehiculo_service import VehiculoService
+from app.modelos.historial_factura import HistorialFactura  
 from app.esquemas.vehiculo_schema import (
     VehiculoEntrada, 
     VehiculoSalida, 
@@ -11,6 +12,7 @@ from app.esquemas.vehiculo_schema import (
     EspacioResponse
 )
 from app.esquemas.factura_schema import FacturaDetallada
+
 
 router = APIRouter(
     prefix="/api/vehiculos",
@@ -150,3 +152,76 @@ def health_check():
         "success": True,
         "message": "Servicio de vehículos funcionando correctamente"
     }
+
+# En app/routers/vehiculo_routes.py agregar:
+
+@router.get("/deudores")
+def obtener_deudores(db: Session = Depends(get_db)):
+    """
+    Obtener lista de placas con deudas pendientes
+    """
+    try:
+        # Buscar en el historial las placas con deudas NO PAGADAS
+        deudores = db.query(HistorialFactura).filter_by(
+            es_no_pagado=True
+        ).all()
+        
+        # Extraer placas únicas
+        placas_deudoras = {}
+        for factura in deudores:
+            if factura.placa not in placas_deudoras:
+                placas_deudoras[factura.placa] = {
+                    'placa': factura.placa,
+                    'deudas': 0,
+                    'total_deuda': 0,
+                    'ultima_salida': None
+                }
+            placas_deudoras[factura.placa]['deudas'] += 1
+            placas_deudoras[factura.placa]['total_deuda'] += float(factura.costo_total)
+            if not placas_deudoras[factura.placa]['ultima_salida'] or \
+               factura.fecha_hora_salida > placas_deudoras[factura.placa]['ultima_salida']:
+                placas_deudoras[factura.placa]['ultima_salida'] = factura.fecha_hora_salida
+        
+        return {
+            "success": True,
+            "data": list(placas_deudoras.values())
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    # En app/routers/vehiculo_routes.py agregar:
+
+@router.post("/pagar-deuda/{placa}")
+def pagar_deuda(placa: str, db: Session = Depends(get_db)):
+    """
+    Marcar todas las deudas de una placa como pagadas
+    """
+    try:
+        placa = placa.upper().strip()
+        
+        # Buscar todas las facturas no pagadas de esta placa
+        deudas = db.query(HistorialFactura).filter_by(
+            placa=placa,
+            es_no_pagado=True
+        ).all()
+        
+        if not deudas:
+            return {
+                "success": True,
+                "message": f"La placa {placa} no tiene deudas pendientes"
+            }
+        
+        # Marcar todas como pagadas
+        for deuda in deudas:
+            deuda.es_no_pagado = False
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"Se han marcado {len(deudas)} deudas como pagadas para la placa {placa}",
+            "total_pagado": sum(float(d.costo_total) for d in deudas)
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))

@@ -2,7 +2,12 @@
 
 import { useState, useEffect } from "react"
 import useSWR from "swr"
-import { obtenerEspacios, registrarEntrada } from "@/servicios/vehiculoService"
+import { 
+  obtenerEspacios, 
+  registrarEntradaConValidacionDeuda, // ✅ CAMBIADO
+  verificarDeudaPlaca, // ✅ NUEVO
+  pagarDeuda // ✅ NUEVO para futura implementación
+} from "@/servicios/vehiculoService"
 import { obtenerConfiguracion } from "@/servicios/configuracionService"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,7 +21,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Car, Clock, Moon, Sun, AlertTriangle, Info, CheckCircle, XCircle, Printer } from "lucide-react"
+import { 
+  Car, 
+  Clock, 
+  Moon, 
+  Sun, 
+  AlertTriangle, 
+  Info, 
+  CheckCircle, 
+  XCircle, 
+  Printer, 
+  Ban, 
+  ShieldAlert, // ✅ NUEVO icono
+  DollarSign // ✅ NUEVO icono para deudas
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Switch } from "@/components/ui/switch"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -41,6 +59,15 @@ interface Configuracion {
   actualizado_en: string | null
 }
 
+// ✅ NUEVO: Interface para información de deuda
+interface DeudaInfo {
+  tieneDeuda: boolean
+  totalDeuda: number
+  cantidadDeudas: number
+  ultimaSalida: string | null
+  error?: string
+}
+
 export function ParkingGrid() {
   const {
     data: espacios,
@@ -57,7 +84,6 @@ export function ParkingGrid() {
     }
   })
 
-
   // Obtener configuración
   const { data: config } = useSWR<Configuracion>("configuracion", obtenerConfiguracion)
 
@@ -68,6 +94,10 @@ export function ParkingGrid() {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState("")
   const [mostrarAdvertenciaNocturna, setMostrarAdvertenciaNocturno] = useState(false)
+  
+  // ✅ NUEVO: Estado para información de deuda
+  const [deudaInfo, setDeudaInfo] = useState<DeudaInfo | null>(null)
+  const [verificandoDeuda, setVerificandoDeuda] = useState(false)
 
   // NUEVO: Estado para controlar el diálogo de confirmación
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false)
@@ -75,6 +105,9 @@ export function ParkingGrid() {
     accion: () => void
     cancelar: () => void
   } | null>(null)
+
+  // ✅ NUEVO: Estado para diálogo de deuda
+  const [deudaDialogOpen, setDeudaDialogOpen] = useState(false)
 
   // ✅ NUEVO: Función para formatear la placa automáticamente
   const formatearPlaca = (valor: string): string => {
@@ -117,7 +150,6 @@ export function ParkingGrid() {
     }
   }
 
-
   // ✅ NUEVO: Función para manejar el cambio en el input de placa
   const handlePlacaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const valor = e.target.value
@@ -130,6 +162,33 @@ export function ParkingGrid() {
       setSubmitError("Formato de placa inválido. Use: AAA-123 o AAA-1234")
     } else {
       setSubmitError("")
+    }
+
+    // ✅ NUEVO: Verificar deuda cuando la placa está completa
+    if (formatoValido) {
+      verificarDeudaEnTiempoReal(formateado)
+    } else {
+      setDeudaInfo(null)
+    }
+  }
+
+  // ✅ NUEVO: Función para verificar deuda en tiempo real
+  const verificarDeudaEnTiempoReal = async (placaVerificar: string) => {
+    if (!placaVerificar || placaVerificar.length < 7) return // Mínimo "ABC-123"
+    
+    setVerificandoDeuda(true)
+    try {
+      const infoDeuda = await verificarDeudaPlaca(placaVerificar)
+      setDeudaInfo(infoDeuda)
+      
+      if (infoDeuda.tieneDeuda) {
+        console.log(`Placa ${placaVerificar} tiene deuda: $${infoDeuda.totalDeuda}`)
+      }
+    } catch (error) {
+      console.error("Error verificando deuda:", error)
+      // Silenciar error para no interrumpir flujo
+    } finally {
+      setVerificandoDeuda(false)
     }
   }
 
@@ -191,6 +250,7 @@ export function ParkingGrid() {
       // ✅ ESPACIO LIBRE: Abrir diálogo para registrar entrada
       setSelectedEspacio(espacio.numero)
       setPlaca("")
+      setDeudaInfo(null) // ✅ Limpiar información de deuda
 
       // ✅ Activar automáticamente si está en horario nocturno
       const enHorarioNocturno = estaEnHorarioNocturno()
@@ -234,6 +294,7 @@ export function ParkingGrid() {
       })
     }
   }
+
   // Función para mostrar confirmación
   const mostrarConfirmacion = (mensaje: string, onConfirm: () => void, onCancel?: () => void): Promise<boolean> => {
     return new Promise((resolve) => {
@@ -263,6 +324,12 @@ export function ParkingGrid() {
         description: "La placa debe tener el formato: 3 letras, guión, 3 o 4 números (ej: ABC-1234)",
         icon: <XCircle className="h-4 w-4" />,
       })
+      return
+    }
+
+    // ✅ NUEVO: Si la placa tiene deuda, mostrar diálogo especial
+    if (deudaInfo?.tieneDeuda) {
+      setDeudaDialogOpen(true)
       return
     }
 
@@ -313,6 +380,68 @@ export function ParkingGrid() {
     }
   }
 
+  // ✅ NUEVO: Función para manejar vehículo con deuda
+  const manejarVehiculoConDeuda = async () => {
+    setDeudaDialogOpen(false)
+    continuarRegistroConExcepcion()
+  }
+
+  // ✅ NUEVO: Función para registrar con excepción de deuda
+  const continuarRegistroConExcepcion = async () => {
+    setSubmitting(true)
+    setSubmitError("")
+
+    const toastId = toast.loading("Registrando entrada con excepción...", {
+      description: `Vehículo con deuda: ${placa.toUpperCase()}`,
+    })
+
+    try {
+      // Usar la función normal pero pasar un flag para ignorar la deuda (para backend futuro)
+      const resultado = await registrarEntradaConValidacionDeuda(placa.trim(), selectedEspacio, esNocturno)
+
+      if (resultado.ok) {
+        toast.success("Entrada registrada CON EXCEPCIÓN", {
+          id: toastId,
+          description: `Vehículo ${resultado.data.placa} registrado a pesar de tener deuda pendiente`,
+          icon: <ShieldAlert className="h-4 w-4 text-amber-600" />,
+          action: {
+            label: "Imprimir Ticket",
+            onClick: () => {
+              imprimirTicketEntrada(resultado.data, esNocturno)
+            },
+          },
+        })
+
+        // Imprimir ticket especial que indique que tiene deuda
+        imprimirTicketEntradaConDeuda(resultado.data, esNocturno, deudaInfo!)
+
+        await mutate()
+        setDialogOpen(false)
+        setPlaca("")
+        setEsNocturno(false)
+        setDeudaInfo(null)
+        setSelectedEspacio(null)
+      } else {
+        toast.error("Error al registrar entrada", {
+          id: toastId,
+          description: resultado.message,
+          icon: <XCircle className="h-4 w-4" />,
+        })
+        setSubmitError(resultado.message || "Error al registrar entrada")
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Error al registrar entrada"
+      toast.error("Error inesperado", {
+        id: toastId,
+        description: errorMessage,
+        icon: <XCircle className="h-4 w-4" />,
+      })
+      setSubmitError(errorMessage)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   const continuarRegistro = async () => {
     setSubmitting(true)
     setSubmitError("")
@@ -323,8 +452,8 @@ export function ParkingGrid() {
     })
 
     try {
-      // Siempre pasar esNocturno como está (true/false)
-      const resultado = await registrarEntrada(placa.trim(), selectedEspacio, esNocturno)
+      // ✅ CAMBIADO: Usar la nueva función que valida deudas
+      const resultado = await registrarEntradaConValidacionDeuda(placa.trim(), selectedEspacio, esNocturno)
 
       if (resultado.ok) {
         // Actualizar toast a éxito
@@ -351,20 +480,37 @@ export function ParkingGrid() {
         setDialogOpen(false)
         setPlaca("")
         setEsNocturno(false)
+        setDeudaInfo(null)
         setSelectedEspacio(null)
       } else {
-        // Actualizar toast a error
-        toast.error("Error al registrar entrada", {
-          id: toastId,
-          description: resultado.message,
-          icon: <XCircle className="h-4 w-4" />,
-        })
+        // ✅ NUEVO: Manejar caso de deuda pendiente
+        if (resultado.tieneDeuda) {
+          toast.error(" VEHÍCULO CON DEUDA", {
+            id: toastId,
+            description: resultado.message,
+            icon: <Ban className="h-4 w-4" />,
+            duration: 8000,
+            action: {
+              label: "Ver Detalles",
+              onClick: () => {
+                setDeudaInfo(resultado.deudaInfo)
+                setDeudaDialogOpen(true)
+              }
+            }
+          });
+          setDeudaInfo(resultado.deudaInfo)
+        } else {
+          toast.error("Error al registrar entrada", {
+            id: toastId,
+            description: resultado.message,
+            icon: <XCircle className="h-4 w-4" />,
+          })
+        }
         setSubmitError(resultado.message || "Error al registrar entrada")
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Error al registrar entrada"
 
-      // Actualizar toast a error
       toast.error("Error inesperado", {
         id: toastId,
         description: errorMessage,
@@ -585,6 +731,227 @@ export function ParkingGrid() {
       }, 1000)
     }, 500)
   }
+
+  // ✅ NUEVO: Función para imprimir ticket con advertencia de deuda
+  const imprimirTicketEntradaConDeuda = (vehiculo: any, esNocturno: boolean, deudaInfo: DeudaInfo) => {
+    const fechaEntrada = new Date()
+    const fecha = fechaEntrada.toLocaleDateString("es-EC", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric"
+    })
+    const hora = fechaEntrada.toLocaleTimeString("es-EC", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true
+    })
+
+    const printWindow = window.open("", "_blank", "width=72mm,height=600")
+    if (!printWindow) {
+      toast.error("No se pudo abrir ventana de impresión")
+      return
+    }
+
+    printWindow.document.write(`
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>Ticket de Entrada CON DEUDA</title>
+      <style>
+        * {
+          margin: 0;
+          padding: 0;
+          box-sizing: border-box;
+          font-family: 'Courier New', monospace;
+        }
+        
+        body {
+          width: 72mm;
+          margin: 0;
+          padding: 1mm;
+          font-size: 10px;
+          line-height: 1.1;
+        }
+        
+        @media print {
+          @page {
+            size: 72mm auto;
+            margin: 0;
+          }
+          
+          body {
+            width: 72mm !important;
+            margin: 0 !important;
+            padding: 1mm !important;
+          }
+        }
+        
+        .ticket {
+          width: 100%;
+          text-align: left;
+        }
+        
+        .center {
+          text-align: center;
+        }
+        
+        .bold {
+          font-weight: bold;
+        }
+        
+        .small {
+          font-size: 9px;
+        }
+        
+        .medium {
+          font-size: 11px;
+        }
+        
+        .large {
+          font-size: 13px;
+        }
+        
+        .separator {
+          border: none;
+          border-top: 1px dashed #000;
+          margin: 2px 0;
+        }
+        
+        .espacio {
+          font-size: 16px;
+          font-weight: bold;
+          margin: 3px 0;
+          text-align: center;
+        }
+        
+        .placa {
+          font-size: 12px;
+          font-weight: bold;
+          margin: 2px 0;
+          text-align: center;
+        }
+        
+        .deuda-alert {
+          background-color: #fee;
+          border: 1px solid #f00;
+          border-radius: 2px;
+          padding: 2px;
+          margin: 3px 0;
+          text-align: center;
+        }
+        
+        .deuda-alert .title {
+          font-size: 9px;
+          font-weight: bold;
+          color: #f00;
+        }
+        
+        .deuda-alert .amount {
+          font-size: 10px;
+          font-weight: bold;
+          color: #900;
+        }
+        
+        .info-basica {
+          margin: 5px 0;
+        }
+        
+        .info-row {
+          display: flex;
+          justify-content: space-between;
+          padding: 1px 0;
+        }
+        
+        .warning {
+          font-size: 8px;
+          margin: 4px 0;
+          text-align: center;
+          line-height: 1.2;
+        }
+        
+        .footer {
+          font-size: 7px;
+          margin-top: 5px;
+          padding-top: 3px;
+          border-top: 1px dashed #000;
+          text-align: center;
+          line-height: 1.1;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="ticket">
+        <div class="center">
+          <div class="bold large">HOTEL LA FAROLA</div>
+          <div class="bold medium">TICKET DE ENTRADA</div>
+          <div class="small">Parqueadero</div>
+        </div>
+        
+        <div class="separator"></div>
+        
+        <!-- ALERTA DE DEUDA -->
+        <div class="deuda-alert">
+          <div class="title">VEHÍCULO CON DEUDA PENDIENTE</div>
+          <div class="amount">DEUDA: $${deudaInfo.totalDeuda.toFixed(2)}</div>
+        </div>
+        
+        <div class="separator"></div>
+        
+        <div class="espacio">ESPACIO #${selectedEspacio}</div>
+        
+        <div class="placa">${vehiculo.placa || placa.toUpperCase()}</div>
+        
+        <div class="separator"></div>
+        
+        <div class="info-basica">
+          <div class="info-row">
+            <span class="bold">Fecha entrada:</span>
+            <span>${fecha}</span>
+          </div>
+          <div class="info-row">
+            <span class="bold">Hora entrada:</span>
+            <span>${hora}</span>
+          </div>
+          <div class="info-row">
+            <span class="bold">Tarifa:</span>
+            <span>${esNocturno ? 'NOCTURNA' : 'NORMAL'}</span>
+          </div>
+          <div class="info-row">
+            <span class="bold">Estado:</span>
+            <span>CON DEUDA - REGISTRO EXCEPCIONAL</span>
+          </div>
+        </div>
+        
+        <div class="separator"></div>
+        
+        <div class="warning">
+          <div class="bold"> VEHÍCULO CON DEUDA</div>
+          <div>No se permitirá nueva entrada sin pago previo</div>
+          <div class="bold">Contacte con administración</div>
+        </div>
+        
+        <div class="footer">
+          <div><span class="bold">Generado:</span> ${new Date().toLocaleTimeString("es-EC", { hour: '2-digit', minute: '2-digit' })}</div>
+          <div>TICKET EXCEPCIONAL - CON DEUDA</div>
+        </div>
+      </div>
+    </body>     
+  </html>
+`)
+
+    printWindow.document.close()
+
+    setTimeout(() => {
+      printWindow.print()
+      setTimeout(() => {
+        if (!printWindow.closed) {
+          printWindow.close()
+        }
+      }, 1000)
+    }, 500)
+  }
+
   const formatEntrada = (entrada: string) => {
     const date = new Date(entrada)
     return date.toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })
@@ -808,25 +1175,47 @@ export function ParkingGrid() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="placa">Placa del Vehículo</Label>
-              <Input
-                id="placa"
-                placeholder="ABC-1234"
-                value={placa}
-                onChange={handlePlacaChange} // ✅ CORRECCIÓN: Usar la nueva función
-                onBlur={handlePlacaBlur} // ✅ NUEVO: Formatear al perder foco
-                className="font-mono text-lg uppercase"
-                maxLength={8} // AAA-1234 = 8 caracteres
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && placa.trim() && !submitting) {
-                    handleRegistrarEntrada()
-                  }
-                }}
-              />
+              <div className="relative">
+                <Input
+                  id="placa"
+                  placeholder="ABC-1234"
+                  value={placa}
+                  onChange={handlePlacaChange}
+                  onBlur={handlePlacaBlur}
+                  className="font-mono text-lg uppercase pr-10"
+                  maxLength={8}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && placa.trim() && !submitting) {
+                      handleRegistrarEntrada()
+                    }
+                  }}
+                />
+                {verificandoDeuda && (
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    <div className="h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                  </div>
+                )}
+              </div>
               <div className="text-xs text-muted-foreground flex items-center gap-1">
                 <Info className="h-3 w-3" />
                 <span>Formato: 3 letras, guión, 3 o 4 números (ej: ABC-1234)</span>
               </div>
             </div>
+
+            {/* ✅ NUEVO: Alerta de deuda */}
+            {deudaInfo?.tieneDeuda && (
+              <div className="rounded-lg border border-red-500 bg-red-50 p-4">
+                <div className="flex items-start gap-3">
+                  <Ban className="h-5 w-5 text-red-600 mt-0.5" />
+                  <div className="text-red-700 text-sm">
+                    <strong className="block mb-1">🚫 VEHÍCULO CON DEUDA PENDIENTE</strong>
+                    <p>Esta placa tiene {deudaInfo.cantidadDeudas} deuda(s) pendiente(s).</p>
+                    <p className="mt-1 font-bold">Total adeudado: ${deudaInfo.totalDeuda.toFixed(2)}</p>
+                    <p className="mt-1 text-xs">No se permitirá el registro hasta que se pague la deuda.</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Switch SIEMPRE visible */}
             <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
@@ -857,9 +1246,9 @@ export function ParkingGrid() {
                 checked={esNocturno}
                 onCheckedChange={(checked) => {
                   setEsNocturno(checked)
-                  // ✅ CORRECCIÓN: La lógica se maneja en el useEffect
                 }}
                 className="data-[state=checked]:bg-amber-600"
+                disabled={deudaInfo?.tieneDeuda} // ✅ Deshabilitar si hay deuda
               />
             </div>
 
@@ -918,15 +1307,115 @@ export function ParkingGrid() {
             </Button>
             <Button
               onClick={handleRegistrarEntrada}
-              disabled={!placa.trim() || submitting || !validarFormatoPlaca(placa)} // ✅ NUEVO: Deshabilitar si el formato no es válido
+              disabled={!placa.trim() || submitting || !validarFormatoPlaca(placa) || deudaInfo?.tieneDeuda}
               className={esNocturno ? "bg-amber-600 hover:bg-amber-700" : ""}
             >
               {submitting
                 ? "Registrando..."
-                : esNocturno
-                  ? `Registrar ${!enHorarioNocturno ? '(Excepción) ' : ''}(Nocturno - $${config?.precio_nocturno || '10.00'})`
-                  : "Registrar Entrada"
+                : deudaInfo?.tieneDeuda
+                  ? " VEHÍCULO CON DEUDA"
+                  : esNocturno
+                    ? `Registrar ${!enHorarioNocturno ? '(Excepción) ' : ''}(Nocturno - $${config?.precio_nocturno || '10.00'})`
+                    : "Registrar Entrada"
               }
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ✅ NUEVO: Diálogo para vehículos con deuda */}
+      <Dialog open={deudaDialogOpen} onOpenChange={setDeudaDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <Ban className="h-5 w-5" />
+              VEHÍCULO CON DEUDA PENDIENTE
+            </DialogTitle>
+            <DialogDescription className="text-red-600">
+              La placa {placa.toUpperCase()} tiene deudas pendientes.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Deudas pendientes:</span>
+                  <span className="font-bold text-red-700">{deudaInfo?.cantidadDeudas || 0}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Total adeudado:</span>
+                  <span className="font-bold text-red-700">${deudaInfo?.totalDeuda?.toFixed(2) || '0.00'}</span>
+                </div>
+                {deudaInfo?.ultimaSalida && (
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">Última salida:</span>
+                    <span className="text-sm">
+                      {new Date(deudaInfo.ultimaSalida).toLocaleDateString('es-EC')}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="text-sm text-gray-600">
+              <p className="font-medium mb-2">¿Qué desea hacer?</p>
+              <ul className="space-y-2 text-xs text-gray-500">
+                <li className="flex items-start gap-2">
+                  <Ban className="h-3 w-3 text-red-500 mt-0.5 flex-shrink-0" />
+                  <span><strong>Rechazar entrada:</strong> El vehículo no podrá ingresar hasta pagar la deuda.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <ShieldAlert className="h-3 w-3 text-amber-500 mt-0.5 flex-shrink-0" />
+                  <span><strong>Permitir entrada como excepción:</strong> Solo para casos especiales autorizados por administración.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <DollarSign className="h-3 w-3 text-green-500 mt-0.5 flex-shrink-0" />
+                  <span><strong>Registrar pago:</strong> Marcar deuda como pagada antes de permitir entrada.</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 flex-col sm:flex-row">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeudaDialogOpen(false)
+                toast.info("Entrada rechazada", {
+                  description: `Vehículo ${placa.toUpperCase()} no puede ingresar por deuda pendiente.`,
+                  icon: <Ban className="h-4 w-4" />,
+                })
+              }}
+              className="w-full sm:w-auto"
+            >
+              Rechazar Entrada
+            </Button>
+            <Button
+              variant="outline"
+              className="bg-amber-600 hover:bg-amber-700 text-white w-full sm:w-auto"
+              onClick={() => {
+                // Aquí podrías implementar la lógica para marcar como pagada
+                toast.info("Funcionalidad en desarrollo", {
+                  description: "Módulo de pago de deudas próximamente.",
+                  icon: <DollarSign className="h-4 w-4" />,
+                })
+              }}
+            >
+              <DollarSign className="h-4 w-4 mr-2" />
+              Marcar como Pagado
+            </Button>
+            <Button
+              className="bg-red-600 hover:bg-red-700 text-white w-full sm:w-auto"
+              onClick={manejarVehiculoConDeuda}
+              disabled={submitting}
+            >
+              {submitting ? "Registrando..." : (
+                <>
+                  <ShieldAlert className="h-4 w-4 mr-2" />
+                  Permitir como Excepción
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

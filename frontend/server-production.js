@@ -43,7 +43,7 @@ app.prepare()
         console.error('Error starting server:', err);
         throw err;
       }
-      console.log(`✅ Next.js ready on http://${hostname}:${port}`);
+      console.log(`Next.js ready on http://${hostname}:${port}`);
     });
   })
   .catch((err) => {

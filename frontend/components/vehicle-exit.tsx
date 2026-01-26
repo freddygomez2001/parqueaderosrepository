@@ -14,9 +14,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Search, Clock, DollarSign, Car, Printer, Moon, Sun, Info, CheckCircle, Ban } from "lucide-react"
+import { Search, Clock, DollarSign, Car, Printer, Moon, Sun, Info, CheckCircle, Ban, Lock, Eye, EyeOff } from "lucide-react"
 import { useSWRConfig } from "swr"
 import { toast } from "sonner"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 // Tipos
 interface VehiculoBusqueda {
@@ -43,7 +44,7 @@ interface Factura {
   costo_total: number
   detalles: string
   es_nocturno: boolean
-  es_no_pagado?: boolean // ✅ NUEVO: Campo para saber si es no pagado
+  es_no_pagado?: boolean
   tarifa_aplicada?: string
 }
 
@@ -53,6 +54,9 @@ const HOTEL_INFO = {
   direccion: "Av. Gil Ramirez Davalos y Av Heroes de Verdeloma",
   telefono: "+593 99 808 5600",
 }
+
+// ✅ CONTRASEÑA DE ADMINISTRADOR
+const PASSWORD_ADMIN = "admin2024"
 
 export function VehicleExit() {
   const { mutate } = useSWRConfig()
@@ -65,7 +69,15 @@ export function VehicleExit() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [indicadorVisible, setIndicadorVisible] = useState(false)
   const [noPagado, setNoPagado] = useState(false)
-  const [mostrarConfirmacionNoPagado, setMostrarConfirmacionNoPagado] = useState(false)
+  
+  // ✅ NUEVO: Estados para contraseña de administrador
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
+  const [passwordInput, setPasswordInput] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
+  const [passwordError, setPasswordError] = useState("")
+  const [passwordAttempts, setPasswordAttempts] = useState(0)
+  const [passwordBlocked, setPasswordBlocked] = useState(false)
+  
   const facturaRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -230,17 +242,73 @@ export function VehicleExit() {
     }
   }
 
-  // ✅ Función para registrar salida con opción de no pagado
-  const handleRegistrarSalida = async (marcarComoNoPagado: boolean = false) => {
+  // ✅ Función para registrar salida (NORMAL)
+  const handleRegistrarSalidaNormal = async () => {
     if (!vehiculo) return
+    await procesarSalida(false)
+  }
 
-    // Si se va a marcar como no pagado, mostrar confirmación
-    if (marcarComoNoPagado) {
-      setMostrarConfirmacionNoPagado(true)
+  // ✅ Función para solicitar registrar como NO PAGADO (con contraseña)
+  const handleSolicitarNoPagado = async () => {
+    if (!vehiculo) return
+    
+    // Resetear intentos si ya pasaron 5 minutos
+    const lastAttempt = localStorage.getItem('last_password_attempt')
+    if (lastAttempt) {
+      const timeDiff = Date.now() - parseInt(lastAttempt)
+      if (timeDiff > 5 * 60 * 1000) { // 5 minutos
+        setPasswordAttempts(0)
+        setPasswordBlocked(false)
+        localStorage.removeItem('last_password_attempt')
+      }
+    }
+    
+    if (passwordAttempts >= 3) {
+      setPasswordBlocked(true)
+      toast.error("Demasiados intentos fallidos", {
+        description: "Espere 5 minutos antes de intentar nuevamente",
+        duration: 5000,
+      })
       return
     }
+    
+    // Mostrar diálogo de contraseña
+    setPasswordInput("")
+    setPasswordError("")
+    setPasswordDialogOpen(true)
+  }
 
-    await procesarSalida(false)
+  // ✅ Función para verificar contraseña de administrador
+  const verificarPassword = () => {
+    if (passwordInput === PASSWORD_ADMIN) {
+      // Contraseña correcta
+      setPasswordDialogOpen(false)
+      setPasswordInput("")
+      setPasswordError("")
+      setPasswordAttempts(0)
+      setPasswordBlocked(false)
+      localStorage.removeItem('last_password_attempt')
+      
+      // Procesar como NO PAGADO
+      procesarSalida(true)
+    } else {
+      // Contraseña incorrecta
+      const newAttempts = passwordAttempts + 1
+      setPasswordAttempts(newAttempts)
+      setPasswordError(`Contraseña incorrecta. Intentos: ${newAttempts}/3`)
+      setPasswordInput("")
+      
+      // Guardar tiempo del último intento
+      localStorage.setItem('last_password_attempt', Date.now().toString())
+      
+      if (newAttempts >= 3) {
+        setPasswordBlocked(true)
+        setPasswordError("Demasiados intentos fallidos. Espere 5 minutos antes de intentar nuevamente.")
+        setTimeout(() => {
+          setPasswordDialogOpen(false)
+        }, 3000)
+      }
+    }
   }
 
   // ✅ Función para procesar la salida (normal o no pagado)
@@ -258,7 +326,7 @@ export function VehicleExit() {
         setDialogOpen(true)
         setVehiculo(null)
         setPlaca("")
-        setNoPagado(esNoPagado) // ✅ Guardar el estado de no pagado
+        setNoPagado(esNoPagado)
         mutate("espacios")
         
         if (esNoPagado) {
@@ -276,7 +344,6 @@ export function VehicleExit() {
       setError(err instanceof Error ? err.message : "Error al registrar salida")
     } finally {
       setProcessing(false)
-      setMostrarConfirmacionNoPagado(false)
     }
   }
 
@@ -511,7 +578,7 @@ export function VehicleExit() {
           
           ${noPagado ? `
             <div class="no-pagado">
-              ⚠️ REGISTRADO COMO NO PAGADO
+               REGISTRADO COMO NO PAGADO
             </div>
           ` : ''}
           
@@ -609,7 +676,7 @@ export function VehicleExit() {
 
           {vehiculo && (
             <div className="rounded-lg border bg-card p-4 space-y-4">
-              {/* ✅ MODIFICADO: Badge para cualquier tipo de tarifa */}
+              {/* ✅ Badge para tipo de tarifa */}
               <div className="flex justify-center">
                 <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full ${vehiculo.es_nocturno ? 'bg-amber-500/20 border border-amber-500/50' : 'bg-blue-500/20 border border-blue-500/50'}`}>
                   {vehiculo.es_nocturno ? (
@@ -665,30 +732,10 @@ export function VehicleExit() {
                 )}
               </div>
 
-              {/* ✅ MODIFICADO: Checkbox para marcar como no pagado - DISPONIBLE PARA TODAS LAS TARIFAS */}
-              <div className="flex items-center space-x-2 p-3 border rounded-lg bg-rose-50 border-rose-200">
-                <input
-                  type="checkbox"
-                  id="no-pagado"
-                  checked={noPagado}
-                  onChange={(e) => setNoPagado(e.target.checked)}
-                  className="h-4 w-4 text-rose-600 border-rose-300 rounded focus:ring-rose-500"
-                />
-                <Label htmlFor="no-pagado" className="text-sm font-medium text-rose-700">
-                  <div className="flex items-center gap-2">
-                    <Ban className="h-4 w-4" />
-                    <span>Marcar como NO PAGADO</span>
-                  </div>
-                  <p className="text-xs text-rose-600 font-normal mt-1">
-                    El vehículo se fue sin pagar. Este registro no se sumará a los ingresos del reporte.
-                  </p>
-                </Label>
-              </div>
-
-              {/* ✅ MODIFICADO: Botones para salida - DISPONIBLE PARA TODAS LAS TARIFAS */}
+              {/* ✅ SOLUCIÓN: Solo botones, NO checkbox */}
               <div className="grid grid-cols-2 gap-2">
                 <Button
-                  onClick={() => handleRegistrarSalida(false)}
+                  onClick={handleRegistrarSalidaNormal}
                   className={`w-full ${vehiculo.es_nocturno ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'}`}
                   size="lg"
                   disabled={processing}
@@ -703,74 +750,118 @@ export function VehicleExit() {
                 </Button>
                 
                 <Button
-                  onClick={() => handleRegistrarSalida(true)}
+                  onClick={handleSolicitarNoPagado}
                   className="w-full bg-rose-600 hover:bg-rose-700"
                   size="lg"
-                  disabled={processing}
+                  disabled={processing || passwordBlocked}
                   variant="default"
                 >
+                  <Lock className="h-4 w-4 mr-2" />
                   {processing
                     ? "Procesando..."
-                    : "Registrar como NO PAGADO"
+                    : passwordBlocked
+                      ? "BLOQUEADO"
+                      : "Registrar NO PAGADO"
                   }
                 </Button>
               </div>
+              
+              {passwordBlocked && (
+                <div className="text-center text-xs text-rose-600 bg-rose-50 p-2 rounded border border-rose-200">
+                   Demasiados intentos fallidos. Espere 5 minutos antes de intentar nuevamente.
+                </div>
+              )}
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* ✅ Diálogo de confirmación para no pagado - DISPONIBLE PARA TODAS LAS TARIFAS */}
-      <Dialog open={mostrarConfirmacionNoPagado} onOpenChange={setMostrarConfirmacionNoPagado}>
-        <DialogContent>
+      {/* ✅ Diálogo de contraseña para NO PAGADO */}
+      <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-rose-700">
-              <Ban className="h-5 w-5" />
-              Confirmar Salida No Pagada
+              <Lock className="h-5 w-5" />
+              Autenticación Requerida
             </DialogTitle>
             <DialogDescription className="text-rose-600">
-              Está a punto de registrar una salida como NO PAGADA.
+              Ingrese la contraseña de administrador para registrar como NO PAGADO
             </DialogDescription>
           </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            <div className="bg-rose-50 p-4 rounded-lg border border-rose-200">
-              <div className="space-y-2 text-sm">
-                <p><strong>⚠️ ATENCIÓN:</strong> Esta acción registrará la salida del vehículo pero NO se sumará a los ingresos del reporte diario.</p>
-                <p><strong>• Placa:</strong> {vehiculo?.placa}</p>
-                <p><strong>• Espacio:</strong> {vehiculo?.espacio_numero}</p>
-                <p><strong>• Tarifa:</strong> {vehiculo?.es_nocturno ? 'Nocturna' : 'Normal'} - ${vehiculo?.costo_estimado.toFixed(2)}</p>
-                <p><strong>• Tiempo:</strong> {vehiculo?.tiempo_estimado}</p>
-                <p className="mt-2 font-bold text-rose-700">Este registro quedará marcado como "NO PAGADO" en el sistema.</p>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="admin-password">Contraseña de Administrador</Label>
+              <div className="relative">
+                <Input
+                  id="admin-password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Ingrese la contraseña"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && passwordInput.trim() && !passwordBlocked) {
+                      verificarPassword()
+                    }
+                  }}
+                  className="pl-10 pr-10"
+                  disabled={passwordBlocked}
+                />
+                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-600 transition-colors"
+                  disabled={passwordBlocked}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
               </div>
             </div>
 
-            <div className="text-sm text-gray-600">
-              <p className="font-medium">¿Está seguro que desea continuar?</p>
-              <p className="text-xs text-gray-500 mt-1">
-                Solo use esta opción para vehículos que se han ido sin pagar.
-              </p>
+            {passwordError && (
+              <Alert variant={passwordBlocked ? "destructive" : "default"} className="bg-rose-50 border-rose-200">
+                <Ban className="h-4 w-4" />
+                <AlertDescription className={passwordBlocked ? "text-red-600" : "text-rose-700"}>
+                  {passwordError}
+                </AlertDescription>
+              </Alert>
+            )}
+            
+            <div className="text-xs text-gray-500">
+              <p>Esta acción registrará la salida como <strong>NO PAGADO</strong>.</p>
+              <p className="mt-1">• El registro no se sumará a los ingresos del reporte diario</p>
+              <p>• Quedará marcado como "NO PAGADO" en el sistema</p>
             </div>
           </div>
-
-          <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setMostrarConfirmacionNoPagado(false)}
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setPasswordDialogOpen(false)
+                setPasswordInput("")
+                setPasswordError("")
+              }}
             >
               Cancelar
             </Button>
-            <Button
+            <Button 
+              onClick={verificarPassword}
+              disabled={!passwordInput.trim() || passwordBlocked}
               className="bg-rose-600 hover:bg-rose-700"
-              onClick={() => procesarSalida(true)}
-              disabled={processing}
             >
-              {processing ? "Procesando..." : "Confirmar NO PAGADO"}
+              Verificar y Registrar
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* Diálogo de factura */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>

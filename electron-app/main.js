@@ -320,7 +320,7 @@ async function startNextJS() {
 
     nextProc.on('exit', (code, signal) => {
       const elapsed = Date.now() - startTime;
-      console.error(`[Next.js] ⚠️ Proceso terminó después de ${elapsed}ms. Código: ${code}, Señal: ${signal}`);
+      console.error(`[Next.js] Proceso terminó después de ${elapsed}ms. Código: ${code}, Señal: ${signal}`);
       
       // Si el proceso se cierra muy rápido (menos de 5 segundos) es un error
       if (!resolved && elapsed < 5000) {
