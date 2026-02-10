@@ -128,3 +128,32 @@ export async function obtenerHistorialCajas(limite = 30) {
     throw error;
   }
 }
+
+export async function obtenerMovimientosCaja() {
+  try {
+    const response = await fetch(`${CAJA_URL}/movimientos`);
+    if (!response.ok) throw new Error("Error al obtener movimientos");
+    return await response.json();
+  } catch (error) {
+    console.error("❌ Error en obtenerMovimientosCaja:", error);
+    throw error;
+  }
+}
+
+export async function agregarEfectivoCaja(monto, descripcion, operador) {
+  try {
+    const response = await fetch(`${CAJA_URL}/agregar-efectivo`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ monto, descripcion, operador }),
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.detail || "Error al agregar efectivo");
+    }
+    return await response.json();
+  } catch (error) {
+    console.error("❌ Error en agregarEfectivoCaja:", error);
+    throw error;
+  }
+}

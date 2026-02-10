@@ -1,22 +1,19 @@
 # app/esquemas/caja_schema.py
 from pydantic import BaseModel, Field
-from typing import Optional, Literal
+from typing import Optional, List
 from datetime import datetime
 
 class CajaAperturaRequest(BaseModel):
-    """Schema para abrir caja"""
-    monto_inicial: float = Field(..., ge=0, description="Monto inicial en caja")
-    operador: str = Field(..., min_length=1, description="Nombre del operador")
-    notas: Optional[str] = Field(None, description="Notas de apertura")
+    monto_inicial: float = Field(..., ge=0)
+    operador: str = Field(..., min_length=1)
+    notas: Optional[str] = None
 
 class CajaCierreRequest(BaseModel):
-    """Schema para cerrar caja"""
-    monto_final: float = Field(..., ge=0, description="Monto final contado en caja")
-    operador: Optional[str] = Field(None, description="Nombre del operador que cierra")
-    notas: Optional[str] = Field(None, description="Notas de cierre")
+    monto_final: float = Field(..., ge=0)
+    operador: Optional[str] = None
+    notas: Optional[str] = None
 
 class CajaResponse(BaseModel):
-    """Schema para respuesta de caja"""
     id: int
     monto_inicial: float
     fecha_apertura: str
@@ -37,16 +34,17 @@ class CajaResponse(BaseModel):
         from_attributes = True
 
 class CajaEstadoResponse(BaseModel):
-    """Schema para estado actual de caja"""
     caja_abierta: bool
     caja_actual: Optional[CajaResponse]
     total_dia_parqueo: float
     total_dia_servicios: float
+    # ✅ Campos nuevos — opcionales para no romper clientes viejos
+    total_dia_servicios_tarjeta: float = 0.0
+    total_dia_manuales: float = 0.0
     total_dia_total: float
     monto_esperado: float
 
 class ResumenCajaResponse(BaseModel):
-    """Schema para resumen de caja"""
     monto_inicial: float
     ingresos_parqueo: float
     ingresos_servicios: float
@@ -54,3 +52,22 @@ class ResumenCajaResponse(BaseModel):
     monto_esperado: float
     diferencia: Optional[float]
     monto_final: Optional[float]
+
+class MovimientoCajaItem(BaseModel):
+    id: str
+    tipo: str  # "parqueo" | "servicio" | "efectivo_manual"
+    descripcion: str
+    monto: float
+    metodo_pago: Optional[str] = None
+    fecha: str
+
+class MovimientosCajaResponse(BaseModel):
+    movimientos: List[MovimientoCajaItem]
+    total_efectivo: float
+    total_tarjeta: float
+    total_movimientos: int
+
+class AgregarEfectivoRequest(BaseModel):
+    monto: float = Field(..., gt=0)
+    descripcion: str = Field(default="Efectivo agregado")
+    operador: Optional[str] = None

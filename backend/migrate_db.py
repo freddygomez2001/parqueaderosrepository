@@ -15,7 +15,8 @@ from app.modelos.vehiculo_estacionado import VehiculoEstacionado
 from app.modelos.historial_factura import HistorialFactura
 from app.modelos.producto import Producto
 from app.modelos.venta_servicio import VentaServicio, ItemVentaServicio
-
+from app.modelos.movimiento_manual import MovimientoManualCaja  
+from app.modelos.caja import Caja, EstadoCaja
 
 def migrar_base_datos():
     """Migrar base de datos sin perder datos existentes"""

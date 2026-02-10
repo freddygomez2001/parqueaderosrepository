@@ -1,7 +1,6 @@
-// src/lib/caja-context.tsx
 "use client"
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react"
 import { obtenerEstadoCaja, abrirCaja as abrirCajaAPI } from "@/servicios/cajaService"
 import { useAuth } from "./auth-context"
 import { toast } from "sonner"
@@ -32,6 +31,16 @@ interface CajaContextType {
     refrescarEstado: () => Promise<void>
 }
 
+// ✅ Estado vacío como constante — mismo objeto en cada reset, sin crear nuevos objetos
+const ESTADO_CERRADO: EstadoCaja = {
+    caja_abierta: false,
+    caja_actual: null,
+    total_dia_parqueo: 0,
+    total_dia_servicios: 0,
+    total_dia_total: 0,
+    monto_esperado: 0,
+}
+
 const CajaContext = createContext<CajaContextType | undefined>(undefined)
 
 export function CajaProvider({ children }: { children: ReactNode }) {
@@ -40,25 +49,35 @@ export function CajaProvider({ children }: { children: ReactNode }) {
     const [estadoCaja, setEstadoCaja] = useState<EstadoCaja | null>(null)
     const [loading, setLoading] = useState(true)
 
-    const refrescarEstado = async () => {
+    const refrescarEstado = useCallback(async () => {
         try {
             const estado = await obtenerEstadoCaja()
-            setEstadoCaja(estado)
-            setCajaAbierta(estado.caja_abierta)
+
+            if (estado.caja_abierta) {
+                // ✅ Caja abierta: un solo setState con el estado real
+                setCajaAbierta(true)
+                setEstadoCaja(estado)
+            } else {
+                // ✅ Caja cerrada: un solo setState con estado vacío limpio
+                // Esto garantiza que AperturaCaja vea el form sin datos anteriores
+                setCajaAbierta(false)
+                setEstadoCaja(ESTADO_CERRADO)
+            }
         } catch (error) {
             console.error("Error al obtener estado de caja:", error)
             setCajaAbierta(false)
+            setEstadoCaja(null)
             toast.error("Error al verificar estado de caja", {
                 description: "No se pudo conectar con el servidor",
             })
         } finally {
             setLoading(false)
         }
-    }
+    }, [])
 
     useEffect(() => {
         refrescarEstado()
-    }, [])
+    }, [refrescarEstado])
 
     const abrirCaja = async (montoInicial: number) => {
         if (!operador) {
@@ -70,12 +89,12 @@ export function CajaProvider({ children }: { children: ReactNode }) {
 
         try {
             await abrirCajaAPI(montoInicial, operador)
+            // ✅ Refrescar DESPUÉS de que el backend confirme la apertura
             await refrescarEstado()
         } catch (error) {
             throw error
         }
     }
-
 
     return (
         <CajaContext.Provider

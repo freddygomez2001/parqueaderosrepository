@@ -1,5 +1,7 @@
 "use client"
 
+import React from "react"
+
 import { useState, useRef, useEffect } from "react"
 import { buscarVehiculo, registrarSalida } from "@/servicios/vehiculoService"
 import { Button } from "@/components/ui/button"
@@ -17,6 +19,7 @@ import {
 import { Search, Clock, DollarSign, Car, Printer, Moon, Sun, Info, CheckCircle, Ban, Lock, Eye, EyeOff } from "lucide-react"
 import { useSWRConfig } from "swr"
 import { toast } from "sonner"
+import { useCaja } from "@/lib/caja-context"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
 // Tipos
@@ -60,6 +63,7 @@ const PASSWORD_ADMIN = "admin2024"
 
 export function VehicleExit() {
   const { mutate } = useSWRConfig()
+  const { refrescarEstado } = useCaja()
   const [placa, setPlaca] = useState("")
   const [vehiculo, setVehiculo] = useState<VehiculoBusqueda | null>(null)
   const [factura, setFactura] = useState<Factura | null>(null)
@@ -328,6 +332,9 @@ export function VehicleExit() {
         setPlaca("")
         setNoPagado(esNoPagado)
         mutate("espacios")
+
+        // CLAVE: Refrescar el estado de caja para que los totales se actualicen
+        await refrescarEstado()
         
         if (esNoPagado) {
           toast.warning("Salida registrada como NO PAGADO", {

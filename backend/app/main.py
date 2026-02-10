@@ -17,6 +17,7 @@ from app.modelos import venta_servicio
 from app.modelos import caja 
 
 
+
 # ----------------------------------------------------------------------
 # 🔹 CONFIGURAR ENCODING PARA WINDOWS
 # ----------------------------------------------------------------------
