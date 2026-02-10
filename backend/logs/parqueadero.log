@@ -1,0 +1,55 @@
+2026-02-04 11:32:15 - app.logging_config - INFO - 🚀 Inicializando base de datos...
+2026-02-04 11:32:15 - app.logging_config - INFO - ✅ Tablas creadas/verificadas
+2026-02-04 11:32:15 - app.logging_config - INFO - ✅ SQLite configurado en modo WAL
+2026-02-04 11:33:00 - app.logging_config - INFO - 🚀 Inicializando base de datos...
+2026-02-04 11:33:00 - app.logging_config - INFO - ✅ Tablas creadas/verificadas
+2026-02-04 11:33:00 - app.logging_config - INFO - ✅ SQLite configurado en modo WAL
+2026-02-04 11:33:47 - app.routers.vehiculo_routes - INFO - Deudores encontrados: 0
+2026-02-04 11:33:47 - app.routers.vehiculo_routes - INFO - Deudores encontrados: 0
+2026-02-04 11:33:47 - app.routers.vehiculo_routes - INFO - Deudores encontrados: 0
+2026-02-04 11:33:47 - app.servicios.vehiculo_service - INFO - Intentando registrar entrada - Placa: SDV-3223, Espacio: 2, Nocturno: False
+2026-02-04 11:33:47 - app.servicios.vehiculo_service - INFO - ✅ Entrada registrada - Placa: SDV-3223, Espacio: 2
+2026-02-04 11:33:47 - app.routers.vehiculo_routes - INFO - ✅ Entrada registrada: SDV-3223 en espacio 2
+2026-02-04 11:34:00 - app.routers.vehiculo_routes - INFO - Deudores encontrados: 0
+2026-02-04 11:34:00 - app.routers.vehiculo_routes - INFO - Deudores encontrados: 0
+2026-02-04 11:34:00 - app.routers.vehiculo_routes - INFO - Deudores encontrados: 0
+2026-02-04 11:34:00 - app.servicios.vehiculo_service - INFO - Intentando registrar entrada - Placa: ASC-2322, Espacio: 3, Nocturno: False
+2026-02-04 11:34:00 - app.servicios.vehiculo_service - INFO - ✅ Entrada registrada - Placa: ASC-2322, Espacio: 3
+2026-02-04 11:34:00 - app.routers.vehiculo_routes - INFO - ✅ Entrada registrada: ASC-2322 en espacio 3
+2026-02-04 11:36:26 - app.logging_config - INFO - Inicializando base de datos...
+2026-02-04 11:36:26 - app.logging_config - INFO - Tablas creadas/verificadas
+2026-02-04 11:36:26 - app.logging_config - INFO - ✅ SQLite configurado en modo WAL
+2026-02-04 11:36:49 - app.logging_config - INFO - Inicializando base de datos...
+2026-02-04 11:36:49 - app.logging_config - INFO - Tablas creadas/verificadas
+2026-02-04 11:36:49 - app.logging_config - INFO - ✅ SQLite configurado en modo WAL
+2026-02-04 11:44:04 - app.logging_config - INFO - Inicializando base de datos...
+2026-02-04 11:44:04 - app.logging_config - INFO - Tablas creadas/verificadas
+2026-02-04 11:44:04 - app.logging_config - INFO - ✅ SQLite configurado en modo WAL
+2026-02-04 11:44:41 - app.routers.vehiculo_routes - INFO - Deudores encontrados: 0
+2026-02-04 11:44:41 - app.routers.vehiculo_routes - INFO - Deudores encontrados: 0
+2026-02-04 11:44:42 - app.routers.vehiculo_routes - INFO - Deudores encontrados: 0
+2026-02-04 11:44:42 - app.routers.vehiculo_routes - INFO - ✅ Entrada registrada: XAS-2123 en espacio 4
+2026-02-04 11:44:59 - app.routers.vehiculo_routes - INFO - ✅ Salida registrada: ASC-2322, Costo: $0.50
+2026-02-04 11:45:02 - app.routers.vehiculo_routes - INFO - ✅ Salida registrada: SDV-3223, Costo: $0.50
+2026-02-04 11:45:05 - app.routers.vehiculo_routes - INFO - ✅ Salida registrada: HGC-6556, Costo: $0.50
+2026-02-04 11:58:46 - app.logging_config - INFO - Inicializando base de datos...
+2026-02-04 11:58:46 - app.logging_config - INFO - Tablas creadas/verificadas
+2026-02-04 11:58:46 - app.logging_config - INFO - ✅ SQLite configurado en modo WAL
+2026-02-04 11:59:09 - app.logging_config - INFO - Inicializando base de datos...
+2026-02-04 11:59:09 - app.logging_config - INFO - Tablas creadas/verificadas
+2026-02-04 11:59:09 - app.logging_config - INFO - ✅ SQLite configurado en modo WAL
+2026-02-04 12:00:32 - app.routers.vehiculo_routes - INFO - Deudores encontrados: 0
+2026-02-04 12:00:32 - app.routers.vehiculo_routes - INFO - Deudores encontrados: 0
+2026-02-04 12:00:32 - app.routers.vehiculo_routes - INFO - Deudores encontrados: 0
+2026-02-04 12:00:32 - app.routers.vehiculo_routes - INFO - ✅ Entrada registrada: ASC-2322 en espacio 1
+2026-02-04 12:04:01 - app.logging_config - INFO - Inicializando base de datos...
+2026-02-04 12:04:01 - app.logging_config - INFO - Tablas creadas/verificadas
+2026-02-04 12:04:01 - app.logging_config - INFO - ✅ SQLite configurado en modo WAL
+2026-02-04 13:15:37 - app.logging_config - INFO - Inicializando base de datos...
+2026-02-04 13:15:37 - app.logging_config - INFO - Tablas creadas/verificadas
+2026-02-04 13:15:37 - app.logging_config - INFO - ✅ SQLite configurado en modo WAL
+2026-02-04 13:16:26 - app.routers.reporte_routes - INFO - Reporte detallado 2026-02-04 generado
+2026-02-04 13:16:26 - app.routers.reporte_routes - INFO - Reporte diario 2026-02-04: 5 vehículos, $1.50
+2026-02-04 13:17:23 - app.logging_config - INFO - Inicializando base de datos...
+2026-02-04 13:17:23 - app.logging_config - INFO - Tablas creadas/verificadas
+2026-02-04 13:17:23 - app.logging_config - INFO - ✅ SQLite configurado en modo WAL

@@ -12,6 +12,9 @@ from app.config import Base, engine, SessionLocal
 from app.modelos import configuracion_precios
 from app.modelos import vehiculo_estacionado
 from app.modelos import historial_factura
+from app.modelos import producto  
+from app.modelos import venta_servicio  
+
 
 # ----------------------------------------------------------------------
 # 🔹 CONFIGURAR ENCODING PARA WINDOWS
@@ -75,11 +78,16 @@ from app.routers import (
     configuracion_routes,
     vehiculo_routes,
     reporte_routes,
+    producto_routes,
+    venta_servicio_routes, 
 )
 
 app.include_router(configuracion_routes.router)
 app.include_router(vehiculo_routes.router)
 app.include_router(reporte_routes.router)
+app.include_router(producto_routes.router)  
+app.include_router(venta_servicio_routes.router)  
+
 
 # ----------------------------------------------------------------------
 # 🔹 ENDPOINT RAÍZ (HEALTHCHECK)
