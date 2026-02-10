@@ -14,6 +14,7 @@ from app.modelos import vehiculo_estacionado
 from app.modelos import historial_factura
 from app.modelos import producto  
 from app.modelos import venta_servicio  
+from app.modelos import caja 
 
 
 # ----------------------------------------------------------------------
@@ -79,7 +80,8 @@ from app.routers import (
     vehiculo_routes,
     reporte_routes,
     producto_routes,
-    venta_servicio_routes, 
+    venta_servicio_routes,
+    caja_routes, 
 )
 
 app.include_router(configuracion_routes.router)
@@ -87,6 +89,7 @@ app.include_router(vehiculo_routes.router)
 app.include_router(reporte_routes.router)
 app.include_router(producto_routes.router)  
 app.include_router(venta_servicio_routes.router)  
+app.include_router(caja_routes.router)
 
 
 # ----------------------------------------------------------------------
