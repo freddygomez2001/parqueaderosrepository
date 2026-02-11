@@ -1,3 +1,4 @@
+# app/modelos/historial_factura.py
 from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, Text, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -17,8 +18,11 @@ class HistorialFactura(Base):
     costo_total = Column(Numeric(10, 2), nullable=False)
     detalles_cobro = Column(Text)
     fecha_generacion = Column(DateTime, default=datetime.utcnow, index=True)
-    es_nocturno = Column(Boolean, default=False, nullable=False)  # ✅ Agregar este campo directamente
-    es_no_pagado = Column(Boolean, default=False, nullable=False)  # ✅ NUEVO campo
+    es_nocturno = Column(Boolean, default=False, nullable=False)
+    es_no_pagado = Column(Boolean, default=False, nullable=False)
+    
+    # ✅ NUEVO: Método de pago
+    metodo_pago = Column(String(20), nullable=False, default="efectivo")  # 'efectivo' o 'tarjeta'
 
     # Relación con vehículo
     vehiculo = relationship("VehiculoEstacionado", back_populates="factura")
@@ -36,6 +40,7 @@ class HistorialFactura(Base):
             'costo_total': float(self.costo_total),
             'detalles_cobro': self.detalles_cobro,
             'fecha_generacion': self.fecha_generacion.isoformat(),
-            'es_nocturno': self.es_nocturno,  # ✅ Usar campo directo en lugar de relación
-            'es_no_pagado': self.es_no_pagado  # ✅ NUEVO
+            'es_nocturno': self.es_nocturno,
+            'es_no_pagado': self.es_no_pagado,
+            'metodo_pago': self.metodo_pago  # ✅ AGREGAR
         }

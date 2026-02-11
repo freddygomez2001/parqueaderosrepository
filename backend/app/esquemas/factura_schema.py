@@ -39,16 +39,22 @@ class FacturaResponse(BaseModel):
     class Config:
         from_attributes = True
 
+# app/esquemas/vehiculo_schema.py - Agregar metodo_pago a FacturaDetallada
+
 class FacturaDetallada(BaseModel):
-    """Schema para factura detallada (para imprimir)"""
+    """Schema para factura detallada"""
+    id: int
     placa: str
-    espacio: int
-    entrada: str
-    salida: str
-    tiempo_total: str
+    espacio_numero: int
+    fecha_hora_entrada: str
+    fecha_hora_salida: str
+    tiempo_total_minutos: int
     costo_total: float
-    detalles: str
-    es_nocturno: bool
+    detalles_cobro: Optional[str]
+    fecha_generacion: str
+    es_nocturno: bool = False
+    es_no_pagado: bool = False
+    metodo_pago: str = "efectivo"  # ✅ AGREGAR
 
     class Config:
         from_attributes = True

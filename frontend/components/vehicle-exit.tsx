@@ -1,13 +1,13 @@
 "use client"
 
 import React from "react"
-
 import { useState, useRef, useEffect } from "react"
 import { buscarVehiculo, registrarSalida } from "@/servicios/vehiculoService"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
   DialogContent,
@@ -16,7 +16,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Search, Clock, DollarSign, Car, Printer, Moon, Sun, Info, CheckCircle, Ban, Lock, Eye, EyeOff } from "lucide-react"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { Search, Clock, DollarSign, Car, Printer, Moon, Sun, Info, CheckCircle, Ban, Lock, Eye, EyeOff, Banknote, CreditCard } from "lucide-react"
 import { useSWRConfig } from "swr"
 import { toast } from "sonner"
 import { useCaja } from "@/lib/caja-context"
@@ -61,6 +66,165 @@ const HOTEL_INFO = {
 // ✅ CONTRASEÑA DE ADMINISTRADOR
 const PASSWORD_ADMIN = "admin2024"
 
+// ─── Dialog: Pago con efectivo y cálculo de vuelto ────────────────────────
+function PagoEfectivoDialog({
+  total,
+  onConfirmar,
+  onCancelar,
+  open,
+  onOpenChange
+}: {
+  total: number
+  onConfirmar: (montoRecibido: number) => void
+  onCancelar: () => void
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const [montoRecibido, setMontoRecibido] = useState("")
+  const [error, setError] = useState("")
+
+  const montoRecibidoNum = parseFloat(montoRecibido) || 0
+  const vuelto = montoRecibidoNum - total
+  const esSuficiente = montoRecibidoNum >= total
+
+  const handleConfirmar = () => {
+    if (!montoRecibido) {
+      setError("Ingrese el monto recibido")
+      return
+    }
+    if (montoRecibidoNum < total) {
+      setError(`El monto es insuficiente. Faltan $${(total - montoRecibidoNum).toFixed(2)}`)
+      return
+    }
+    onConfirmar(montoRecibidoNum)
+    setMontoRecibido("")
+    setError("")
+    onOpenChange(false)
+  }
+
+  // Reset cuando se abre el diálogo
+  useEffect(() => {
+    if (open) {
+      setMontoRecibido("")
+      setError("")
+    }
+  }, [open])
+
+  // Sugerencias rápidas
+  const sugerencias = [
+    total,
+    Math.ceil(total),
+    Math.ceil(total / 5) * 5,
+    Math.ceil(total / 10) * 10,
+  ].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b)
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500/10">
+              <Banknote className="h-4 w-4 text-green-600" />
+            </div>
+            <DialogTitle>Pago en efectivo</DialogTitle>
+          </div>
+          <DialogDescription>
+            Ingresa el monto con el que paga el cliente
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Total a cobrar */}
+          <div className="rounded-lg bg-primary/10 p-4 text-center">
+            <p className="text-xs text-muted-foreground mb-1">Total a cobrar</p>
+            <p className="text-3xl font-bold text-primary">${total.toFixed(2)}</p>
+          </div>
+
+          {/* Monto recibido */}
+          <div className="grid gap-2">
+            <Label htmlFor="monto-recibido">Monto recibido ($)</Label>
+            <div className="relative">
+              <DollarSign className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="monto-recibido"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="0.00"
+                value={montoRecibido}
+                onChange={(e) => {
+                  setMontoRecibido(e.target.value)
+                  setError("")
+                }}
+                className="pl-10 text-2xl h-14 font-mono"
+                autoFocus
+              />
+            </div>
+            {error && (
+              <p className="text-sm text-destructive">{error}</p>
+            )}
+          </div>
+
+          {/* Botones de sugerencias */}
+          <div className="flex flex-wrap gap-2">
+            {sugerencias.map((sug) => (
+              <Button
+                key={sug}
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setMontoRecibido(sug.toFixed(2))
+                  setError("")
+                }}
+                className="bg-transparent"
+              >
+                ${sug.toFixed(2)}
+              </Button>
+            ))}
+          </div>
+
+          {/* Vuelto a devolver */}
+          {montoRecibido && (
+            <div className={`rounded-lg p-4 text-center ${esSuficiente ? 'bg-green-500/10' : 'bg-destructive/10'}`}>
+              <p className="text-xs text-muted-foreground mb-1">
+                {esSuficiente ? 'Vuelto a devolver' : 'Monto insuficiente'}
+              </p>
+              <p className={`text-2xl font-bold ${esSuficiente ? 'text-green-600' : 'text-destructive'}`}>
+                {esSuficiente
+                  ? `$${vuelto.toFixed(2)}`
+                  : `Faltan $${(total - montoRecibidoNum).toFixed(2)}`
+                }
+              </p>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              onCancelar()
+              onOpenChange(false)
+              setMontoRecibido("")
+              setError("")
+            }}
+          >
+            Cancelar
+          </Button>
+          <Button
+            onClick={handleConfirmar}
+            disabled={!esSuficiente || !montoRecibido}
+            className="gap-2 bg-green-600 hover:bg-green-700"
+          >
+            <CheckCircle className="h-4 w-4" />
+            Confirmar pago
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function VehicleExit() {
   const { mutate } = useSWRConfig()
   const { refrescarEstado } = useCaja()
@@ -73,15 +237,19 @@ export function VehicleExit() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [indicadorVisible, setIndicadorVisible] = useState(false)
   const [noPagado, setNoPagado] = useState(false)
-  
-  // ✅ NUEVO: Estados para contraseña de administrador
+
+  // ✅ Estados para pago en efectivo
+  const [pagoDialogOpen, setPagoDialogOpen] = useState(false)
+  const [metodoPago, setMetodoPago] = useState<"efectivo" | "tarjeta">("efectivo")
+
+  // ✅ Estados para contraseña de administrador
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
   const [passwordInput, setPasswordInput] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [passwordError, setPasswordError] = useState("")
   const [passwordAttempts, setPasswordAttempts] = useState(0)
   const [passwordBlocked, setPasswordBlocked] = useState(false)
-  
+
   const facturaRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -246,16 +414,89 @@ export function VehicleExit() {
     }
   }
 
-  // ✅ Función para registrar salida (NORMAL)
-  const handleRegistrarSalidaNormal = async () => {
+  // ✅ Función para registrar salida con EFECTIVO (sí suma a caja)
+  const procesarSalidaEfectivo = async (montoRecibido: number) => {
     if (!vehiculo) return
-    await procesarSalida(false)
+
+    setProcessing(true)
+    setError("")
+
+    try {
+      // 👈 PASAR metodo_pago = "efectivo"
+      const result = await registrarSalida(vehiculo.placa, false, "efectivo")
+
+      if (result.ok && result.data) {
+        const vuelto = montoRecibido - vehiculo.costo_estimado
+
+        setFactura(result.data.factura)
+        setDialogOpen(true)
+        setVehiculo(null)
+        setPlaca("")
+        setNoPagado(false)
+        mutate("espacios")
+
+        // Refrescar estado de caja
+        await refrescarEstado()
+
+        toast.success("Salida registrada exitosamente", {
+          description: vuelto > 0 ? `Vuelto: $${vuelto.toFixed(2)}` : "Pago exacto",
+        })
+      } else {
+        setError(result.message || "Error al registrar salida")
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al registrar salida")
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  // ✅ Función para registrar salida con TARJETA
+  const procesarSalidaTarjeta = async () => {
+    if (!vehiculo) return
+
+    setProcessing(true)
+    setError("")
+
+    try {
+      // 👈 PASAR metodo_pago = "tarjeta"
+      const result = await registrarSalida(vehiculo.placa, false, "tarjeta")
+
+      if (result.ok && result.data) {
+        setFactura(result.data.factura)
+        setDialogOpen(true)
+        setVehiculo(null)
+        setPlaca("")
+        setNoPagado(false)
+        mutate("espacios")
+
+        // Refrescar estado de caja
+        await refrescarEstado()
+
+        toast.success("Salida registrada exitosamente", {
+          description: "Pago con tarjeta procesado (no suma a caja)",
+        })
+      } else {
+        setError(result.message || "Error al registrar salida")
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al registrar salida")
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  // ✅ Función para registrar salida normal (por defecto, usa efectivo con diálogo)
+  const handleRegistrarSalidaNormal = () => {
+    if (!vehiculo) return
+    setMetodoPago("efectivo")
+    setPagoDialogOpen(true)
   }
 
   // ✅ Función para solicitar registrar como NO PAGADO (con contraseña)
   const handleSolicitarNoPagado = async () => {
     if (!vehiculo) return
-    
+
     // Resetear intentos si ya pasaron 5 minutos
     const lastAttempt = localStorage.getItem('last_password_attempt')
     if (lastAttempt) {
@@ -266,7 +507,7 @@ export function VehicleExit() {
         localStorage.removeItem('last_password_attempt')
       }
     }
-    
+
     if (passwordAttempts >= 3) {
       setPasswordBlocked(true)
       toast.error("Demasiados intentos fallidos", {
@@ -275,7 +516,7 @@ export function VehicleExit() {
       })
       return
     }
-    
+
     // Mostrar diálogo de contraseña
     setPasswordInput("")
     setPasswordError("")
@@ -292,19 +533,19 @@ export function VehicleExit() {
       setPasswordAttempts(0)
       setPasswordBlocked(false)
       localStorage.removeItem('last_password_attempt')
-      
+
       // Procesar como NO PAGADO
-      procesarSalida(true)
+      procesarSalidaNoPagado()
     } else {
       // Contraseña incorrecta
       const newAttempts = passwordAttempts + 1
       setPasswordAttempts(newAttempts)
       setPasswordError(`Contraseña incorrecta. Intentos: ${newAttempts}/3`)
       setPasswordInput("")
-      
+
       // Guardar tiempo del último intento
       localStorage.setItem('last_password_attempt', Date.now().toString())
-      
+
       if (newAttempts >= 3) {
         setPasswordBlocked(true)
         setPasswordError("Demasiados intentos fallidos. Espere 5 minutos antes de intentar nuevamente.")
@@ -315,35 +556,32 @@ export function VehicleExit() {
     }
   }
 
-  // ✅ Función para procesar la salida (normal o no pagado)
-  const procesarSalida = async (esNoPagado: boolean) => {
+  // ✅ Función para procesar la salida como NO PAGADO
+  const procesarSalidaNoPagado = async () => {
     if (!vehiculo) return
 
     setProcessing(true)
     setError("")
 
     try {
-      const result = await registrarSalida(vehiculo.placa, esNoPagado)
+      // 👈 PASAR es_no_pagado = true, metodo_pago no aplica
+      const result = await registrarSalida(vehiculo.placa, true)
 
       if (result.ok && result.data) {
         setFactura(result.data.factura)
         setDialogOpen(true)
         setVehiculo(null)
         setPlaca("")
-        setNoPagado(esNoPagado)
+        setNoPagado(true)
         mutate("espacios")
 
-        // CLAVE: Refrescar el estado de caja para que los totales se actualicen
+        // Refrescar estado de caja
         await refrescarEstado()
-        
-        if (esNoPagado) {
-          toast.warning("Salida registrada como NO PAGADO", {
-            description: "Este registro no se sumará a los ingresos del reporte diario",
-            duration: 5000,
-          })
-        } else {
-          toast.success("Salida registrada exitosamente")
-        }
+
+        toast.warning("Salida registrada como NO PAGADO", {
+          description: "Este registro no se sumará a los ingresos del reporte diario",
+          duration: 5000,
+        })
       } else {
         setError(result.message || "Error al registrar salida")
       }
@@ -352,6 +590,29 @@ export function VehicleExit() {
     } finally {
       setProcessing(false)
     }
+  }
+  // ✅ Selector de método de pago
+  const MetodoPagoSelector = () => {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium text-muted-foreground">Pago:</span>
+        <div className="flex rounded-lg border bg-muted/30 p-1">
+          {(["efectivo", "tarjeta"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMetodoPago(m)}
+              className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-all ${metodoPago === m
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+                }`}
+            >
+              {m === "efectivo" ? <Banknote className="h-4 w-4" /> : <CreditCard className="h-4 w-4" />}
+              {m === "efectivo" ? "Efectivo" : "Tarjeta"}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
   }
 
   const handleImprimir = () => {
@@ -683,7 +944,7 @@ export function VehicleExit() {
 
           {vehiculo && (
             <div className="rounded-lg border bg-card p-4 space-y-4">
-              {/* ✅ Badge para tipo de tarifa */}
+              {/* Badge para tipo de tarifa */}
               <div className="flex justify-center">
                 <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full ${vehiculo.es_nocturno ? 'bg-amber-500/20 border border-amber-500/50' : 'bg-blue-500/20 border border-blue-500/50'}`}>
                   {vehiculo.es_nocturno ? (
@@ -739,29 +1000,51 @@ export function VehicleExit() {
                 )}
               </div>
 
-              {/* ✅ SOLUCIÓN: Solo botones, NO checkbox */}
+              {/* Selector de método de pago */}
+              <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3">
+                <MetodoPagoSelector />
+                {metodoPago === "tarjeta" && (
+                  <Badge variant="secondary" className="text-xs">
+                    No suma a caja
+                  </Badge>
+                )}
+              </div>
+
+              {/* Botones de cobro según método de pago */}
               <div className="grid grid-cols-2 gap-2">
-                <Button
-                  onClick={handleRegistrarSalidaNormal}
-                  className={`w-full ${vehiculo.es_nocturno ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'}`}
-                  size="lg"
-                  disabled={processing}
-                  variant="default"
-                >
-                  {processing
-                    ? "Procesando..."
-                    : vehiculo.es_nocturno
-                      ? `Registrar Salida (Nocturno - $${vehiculo.costo_estimado.toFixed(2)})`
-                      : `Registrar Salida (Normal - $${vehiculo.costo_estimado.toFixed(2)})`
-                  }
-                </Button>
-                
+                {metodoPago === "efectivo" ? (
+                  <Button
+                    onClick={handleRegistrarSalidaNormal}
+                    className={`w-full ${vehiculo.es_nocturno ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+                    size="lg"
+                    disabled={processing}
+                  >
+                    <Banknote className="h-4 w-4 mr-2" />
+                    {processing
+                      ? "Procesando..."
+                      : `Cobrar $${vehiculo.costo_estimado.toFixed(2)}`
+                    }
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={procesarSalidaTarjeta}
+                    className={`w-full ${vehiculo.es_nocturno ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+                    size="lg"
+                    disabled={processing}
+                  >
+                    <CreditCard className="h-4 w-4 mr-2" />
+                    {processing
+                      ? "Procesando..."
+                      : `Cobrar $${vehiculo.costo_estimado.toFixed(2)}`
+                    }
+                  </Button>
+                )}
+
                 <Button
                   onClick={handleSolicitarNoPagado}
                   className="w-full bg-rose-600 hover:bg-rose-700"
                   size="lg"
                   disabled={processing || passwordBlocked}
-                  variant="default"
                 >
                   <Lock className="h-4 w-4 mr-2" />
                   {processing
@@ -772,10 +1055,10 @@ export function VehicleExit() {
                   }
                 </Button>
               </div>
-              
+
               {passwordBlocked && (
                 <div className="text-center text-xs text-rose-600 bg-rose-50 p-2 rounded border border-rose-200">
-                   Demasiados intentos fallidos. Espere 5 minutos antes de intentar nuevamente.
+                  Demasiados intentos fallidos. Espere 5 minutos antes de intentar nuevamente.
                 </div>
               )}
             </div>
@@ -783,7 +1066,18 @@ export function VehicleExit() {
         </CardContent>
       </Card>
 
-      {/* ✅ Diálogo de contraseña para NO PAGADO */}
+      {/* Diálogo de pago en efectivo con cálculo de vuelto */}
+      {vehiculo && (
+        <PagoEfectivoDialog
+          total={vehiculo.costo_estimado}
+          open={pagoDialogOpen}
+          onOpenChange={setPagoDialogOpen}
+          onConfirmar={procesarSalidaEfectivo}
+          onCancelar={() => setPagoDialogOpen(false)}
+        />
+      )}
+
+      {/* Diálogo de contraseña para NO PAGADO */}
       <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -795,7 +1089,7 @@ export function VehicleExit() {
               Ingrese la contraseña de administrador para registrar como NO PAGADO
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="admin-password">Contraseña de Administrador</Label>
@@ -838,17 +1132,17 @@ export function VehicleExit() {
                 </AlertDescription>
               </Alert>
             )}
-            
+
             <div className="text-xs text-gray-500">
               <p>Esta acción registrará la salida como <strong>NO PAGADO</strong>.</p>
               <p className="mt-1">• El registro no se sumará a los ingresos del reporte diario</p>
               <p>• Quedará marcado como "NO PAGADO" en el sistema</p>
             </div>
           </div>
-          
+
           <DialogFooter>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => {
                 setPasswordDialogOpen(false)
                 setPasswordInput("")
@@ -857,7 +1151,7 @@ export function VehicleExit() {
             >
               Cancelar
             </Button>
-            <Button 
+            <Button
               onClick={verificarPassword}
               disabled={!passwordInput.trim() || passwordBlocked}
               className="bg-rose-600 hover:bg-rose-700"
@@ -874,8 +1168,8 @@ export function VehicleExit() {
           <DialogHeader>
             <DialogTitle>Salida Registrada</DialogTitle>
             <DialogDescription>
-              {noPagado 
-                ? "El vehículo ha sido registrado como NO PAGADO" 
+              {noPagado
+                ? "El vehículo ha sido registrado como NO PAGADO"
                 : "El vehículo ha salido exitosamente"
               }
             </DialogDescription>
@@ -883,7 +1177,7 @@ export function VehicleExit() {
 
           {factura && (
             <div ref={facturaRef} className="font-mono text-sm space-y-3 border rounded-lg p-4 bg-background">
-              {/* ✅ Indicador de no pagado */}
+              {/* Indicador de no pagado */}
               {noPagado && (
                 <div className="text-center mb-2">
                   <div className="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-rose-500/20 border border-rose-500/50">
@@ -895,7 +1189,7 @@ export function VehicleExit() {
                 </div>
               )}
 
-              {/* ✅ Badge para tipo de tarifa */}
+              {/* Badge para tipo de tarifa */}
               <div className="text-center mb-2">
                 <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full ${factura.es_nocturno ? 'bg-amber-500/20 border border-amber-500/50' : 'bg-blue-500/20 border border-blue-500/50'}`}>
                   <span className={`text-xs font-medium ${factura.es_nocturno ? 'text-amber-700' : 'text-blue-700'}`}>

@@ -13,7 +13,7 @@ class VehiculoService:
     @staticmethod
     def obtener_espacios(db: Session):
         """
-        Obtener el estado de los 15 espacios
+        Obtener el estado de los 24 espacios
         
         Returns:
             Lista de diccionarios con el estado de cada espacio
@@ -93,13 +93,15 @@ class VehiculoService:
         return vehiculo
     
     @staticmethod
-    def registrar_salida(db: Session, placa: str, es_no_pagado: bool = False):
+    def registrar_salida(db: Session, placa: str, es_no_pagado: bool = False, metodo_pago: str = "efectivo"):
         """
         Registrar la salida de un vehículo y calcular el costo
         
-        ✅ IMPORTANTE:
-        - Siempre se calcula y guarda el costo real
-        - El flag es_no_pagado solo indica si se cobró o no
+        Args:
+            db: Sesión de base de datos
+            placa: Placa del vehículo
+            es_no_pagado: Indica si el vehículo se va sin pagar
+            metodo_pago: 'efectivo' o 'tarjeta' (solo aplica si es_no_pagado=False)
         """
         placa = placa.upper().strip()
         
@@ -114,7 +116,7 @@ class VehiculoService:
         config = ConfiguracionService.obtener_configuracion(db)
         fecha_salida = datetime.now()
         
-        # ✅ SIEMPRE calcular el costo real
+        # SIEMPRE calcular el costo real
         calculo = CalculoService.calcular_costo(
             vehiculo.fecha_hora_entrada,
             fecha_salida,
@@ -128,20 +130,20 @@ class VehiculoService:
         
         # Formatear detalles según si es pagado o no
         if es_no_pagado:
-            print(f" Vehículo {placa} marcado como NO PAGADO - Costo calculado: ${costo_calculado:.2f}")
+            print(f"🔴 Vehículo {placa} marcado como NO PAGADO - Costo calculado: ${costo_calculado:.2f}")
             detalles = f"NO PAGADO - {detalles_base} - Valor no cobrado: ${costo_calculado:.2f}"
             estado_cobro = "NO COBRADO"
         else:
             detalles = detalles_base
-            estado_cobro = "COBRADO"
+            estado_cobro = f"COBRADO ({metodo_pago.upper()})"
         
-        # Actualizar vehículo con el costo real
+        # Actualizar vehículo
         vehiculo.fecha_hora_salida = fecha_salida
-        vehiculo.costo_total = costo_calculado  # ✅ Guardar costo real siempre
+        vehiculo.costo_total = costo_calculado
         vehiculo.estado = 'finalizado'
         vehiculo.es_no_pagado = es_no_pagado
         
-        # Crear factura con el costo real
+        # Crear factura con el método de pago
         factura = HistorialFactura(
             vehiculo_id=vehiculo.id,
             placa=vehiculo.placa,
@@ -149,10 +151,11 @@ class VehiculoService:
             fecha_hora_entrada=vehiculo.fecha_hora_entrada,
             fecha_hora_salida=fecha_salida,
             tiempo_total_minutos=minutos,
-            costo_total=costo_calculado,  # ✅ Guardar costo real siempre
+            costo_total=costo_calculado,
             detalles_cobro=detalles,
             es_nocturno=vehiculo.es_nocturno,
-            es_no_pagado=es_no_pagado
+            es_no_pagado=es_no_pagado,
+            metodo_pago=metodo_pago  # 👈 GUARDAR EL MÉTODO DE PAGO
         )
         
         db.add(factura)
@@ -160,16 +163,16 @@ class VehiculoService:
         db.refresh(vehiculo)
         db.refresh(factura)
         
-        # Log informativo
-        print(f"Salida registrada - Placa: {placa}, Espacio: {vehiculo.espacio_numero}, "
-              f"Costo: ${costo_calculado:.2f}, Estado: {estado_cobro}")
+        print(f"✅ Salida registrada - Placa: {placa}, Espacio: {vehiculo.espacio_numero}, "
+              f"Método: {metodo_pago}, Costo: ${costo_calculado:.2f}, Estado: {estado_cobro}")
         
         return {
             'vehiculo': vehiculo,
             'factura': factura,
             'tiempo_formateado': CalculoService.formatear_tiempo(minutos),
             'costo_calculado': costo_calculado,
-            'es_no_pagado': es_no_pagado
+            'es_no_pagado': es_no_pagado,
+            'metodo_pago': metodo_pago
         }
     
     @staticmethod
@@ -227,6 +230,7 @@ class VehiculoService:
             print(f"   Factura ID: {historial[0].id}")
             print(f"   Placa: {historial[0].placa}")
             print(f"   Costo: ${historial[0].costo_total}")
+            print(f"   Método Pago: {historial[0].metodo_pago}")
             print(f"   No Pagado: {historial[0].es_no_pagado}")
             print(f"   Nocturno: {historial[0].es_nocturno}")
         
@@ -240,6 +244,7 @@ class VehiculoService:
         ✅ CORRECCIÓN: 
         - Los NO PAGADOS muestran su valor real en 'total_no_cobrado'
         - Los ingresos reales solo incluyen vehículos PAGADOS
+        - Se diferencia entre efectivo y tarjeta
         """
         if fecha:
             fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
@@ -257,7 +262,24 @@ class VehiculoService:
             HistorialFactura.es_no_pagado == False
         ).first()
         
-        # 2️⃣ DEUDAS NO COBRADAS (con valor real)
+        # 2️⃣ INGRESOS POR MÉTODO DE PAGO (solo pagados)
+        ingresos_efectivo = db.query(
+            func.sum(HistorialFactura.costo_total).label('total')
+        ).filter(
+            func.date(HistorialFactura.fecha_generacion) == fecha_obj,
+            HistorialFactura.es_no_pagado == False,
+            HistorialFactura.metodo_pago == "efectivo"
+        ).first()
+        
+        ingresos_tarjeta = db.query(
+            func.sum(HistorialFactura.costo_total).label('total')
+        ).filter(
+            func.date(HistorialFactura.fecha_generacion) == fecha_obj,
+            HistorialFactura.es_no_pagado == False,
+            HistorialFactura.metodo_pago == "tarjeta"
+        ).first()
+        
+        # 3️⃣ DEUDAS NO COBRADAS (con valor real)
         resultado_no_pagados = db.query(
             func.count(HistorialFactura.id).label('total'),
             func.sum(HistorialFactura.costo_total).label('total_no_cobrado')
@@ -266,7 +288,7 @@ class VehiculoService:
             HistorialFactura.es_no_pagado == True
         ).first()
         
-        # 3️⃣ TOTAL GENERAL
+        # 4️⃣ TOTAL GENERAL
         resultado_todos = db.query(
             func.count(HistorialFactura.id).label('total'),
             func.sum(HistorialFactura.costo_total).label('valor_total_real')
@@ -274,7 +296,7 @@ class VehiculoService:
             func.date(HistorialFactura.fecha_generacion) == fecha_obj
         ).first()
         
-        # 4️⃣ INGRESOS POR TIPO (solo pagados)
+        # 5️⃣ INGRESOS POR TIPO (solo pagados)
         resultado_nocturnos = db.query(
             func.sum(HistorialFactura.costo_total).label('ingresos')
         ).filter(
@@ -291,7 +313,7 @@ class VehiculoService:
             HistorialFactura.es_no_pagado == False
         ).first()
         
-        # 5️⃣ CONTEO POR TIPO (pagados)
+        # 6️⃣ CONTEO POR TIPO (pagados)
         conteo_nocturnos = db.query(
             func.count(HistorialFactura.id).label('total')
         ).filter(
@@ -308,7 +330,7 @@ class VehiculoService:
             HistorialFactura.es_no_pagado == False
         ).first()
         
-        # 6️⃣ CONTEO NO PAGADOS POR TIPO
+        # 7️⃣ CONTEO NO PAGADOS POR TIPO
         conteo_nocturnos_no_pagados = db.query(
             func.count(HistorialFactura.id).label('total')
         ).filter(
@@ -325,7 +347,7 @@ class VehiculoService:
             HistorialFactura.es_no_pagado == True
         ).first()
         
-        # 7️⃣ VALOR NO COBRADO POR TIPO
+        # 8️⃣ VALOR NO COBRADO POR TIPO
         valor_no_cobrado_nocturnos = db.query(
             func.sum(HistorialFactura.costo_total).label('valor')
         ).filter(
@@ -342,8 +364,10 @@ class VehiculoService:
             HistorialFactura.es_no_pagado == True
         ).first()
         
-        # 8️⃣ CALCULAR PORCENTAJES
+        # 9️⃣ CALCULAR PORCENTAJES
         ingresos_totales = float(resultado_pagados.ingresos_total or 0)
+        ingresos_efectivo_total = float(ingresos_efectivo.total or 0)
+        ingresos_tarjeta_total = float(ingresos_tarjeta.total or 0)
         no_cobrado_total = float(resultado_no_pagados.total_no_cobrado or 0)
         valor_total_real = float(resultado_todos.valor_total_real or 0)
         
@@ -355,6 +379,8 @@ class VehiculoService:
             'fecha': fecha_obj.isoformat(),
             'total_vehiculos': resultado_pagados.total_vehiculos or 0,
             'ingresos_total': ingresos_totales,
+            'ingresos_efectivo': ingresos_efectivo_total,
+            'ingresos_tarjeta': ingresos_tarjeta_total,
             'estadisticas_avanzadas': {
                 # Totales
                 'total_todos': resultado_todos.total or 0,
@@ -416,6 +442,7 @@ class VehiculoService:
                 'fecha': factura.fecha_hora_salida.date().isoformat() if factura.fecha_hora_salida else None,
                 'costo': float(factura.costo_total),
                 'espacio': factura.espacio_numero,
+                'metodo_pago': factura.metodo_pago,
                 'detalles': factura.detalles_cobro
             })
         

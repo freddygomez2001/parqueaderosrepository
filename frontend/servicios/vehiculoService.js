@@ -58,39 +58,49 @@ export async function registrarEntrada(placa, espacioNumero, esNocturno = false)
   };
 }
 
-// ============================
-// 📌 Registrar salida de un vehículo
-// ============================
-export async function registrarSalida(placa, esNoPagado = false) {
-  const response = await fetch(`${VEHICULO_URL}/salida`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      placa: placa.toUpperCase().trim(),
-      es_no_pagado: esNoPagado,
-    }),
-  });
+// src/servicios/vehiculoService.js
 
-  if (!response.ok) {
-    let errorData = {};
-    try {
-      errorData = await response.json();
-    } catch {}
+/**
+ * Registrar salida de vehículo
+ * @param {string} placa 
+ * @param {boolean} esNoPagado 
+ * @param {string} metodoPago - 'efectivo' o 'tarjeta' (default: 'efectivo')
+ */
+export async function registrarSalida(placa, esNoPagado = false, metodoPago = 'efectivo') {
+  try {
+    // ✅ CAMBIAR DE VEHICULOS_URL A VEHICULO_URL
+    const response = await fetch(`${VEHICULO_URL}/salida`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        placa: placa.trim().toUpperCase(),
+        es_no_pagado: esNoPagado,
+        metodo_pago: metodoPago,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        message: data.detail || "Error al registrar salida",
+      };
+    }
 
     return {
+      ok: true,
+      data: data,
+    };
+  } catch (error) {
+    console.error("❌ Error en registrarSalida:", error);
+    return {
       ok: false,
-      message: errorData.detail || "Error al registrar la salida",
+      message: error.message || "Error de conexión con el servidor",
     };
   }
-
-  const data = await response.json();
-
-  return {
-    ok: true,
-    data,
-  };
 }
 
 // ============================

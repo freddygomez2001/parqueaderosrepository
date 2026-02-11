@@ -8,10 +8,21 @@ import { toast } from "sonner"
 interface EstadoCaja {
     caja_abierta: boolean
     caja_actual: CajaActual | null
+    
+    // 💰 INGRESOS REALES - SOLO EFECTIVO (SUMAN A CAJA)
     total_dia_parqueo: number
     total_dia_servicios: number
+    total_dia_manuales: number
     total_dia_total: number
     monto_esperado: number
+    
+    // 📊 ESTADÍSTICAS - TARJETA (NO SUMAN A CAJA)
+    total_dia_parqueo_tarjeta: number
+    total_dia_servicios_tarjeta: number
+    
+    // 📊 TOTALES GENERALES (SOLO INFORMATIVOS)
+    total_dia_parqueo_total: number
+    total_dia_servicios_total: number
 }
 
 interface CajaActual {
@@ -31,14 +42,25 @@ interface CajaContextType {
     refrescarEstado: () => Promise<void>
 }
 
-// ✅ Estado vacío como constante — mismo objeto en cada reset, sin crear nuevos objetos
+// ✅ Estado vacío con TODOS los campos
 const ESTADO_CERRADO: EstadoCaja = {
     caja_abierta: false,
     caja_actual: null,
+    
+    // 💰 Ingresos reales (cero)
     total_dia_parqueo: 0,
     total_dia_servicios: 0,
+    total_dia_manuales: 0,
     total_dia_total: 0,
     monto_esperado: 0,
+    
+    // 📊 Estadísticas tarjeta (cero)
+    total_dia_parqueo_tarjeta: 0,
+    total_dia_servicios_tarjeta: 0,
+    
+    // 📊 Totales generales (cero)
+    total_dia_parqueo_total: 0,
+    total_dia_servicios_total: 0,
 }
 
 const CajaContext = createContext<CajaContextType | undefined>(undefined)
@@ -52,14 +74,34 @@ export function CajaProvider({ children }: { children: ReactNode }) {
     const refrescarEstado = useCallback(async () => {
         try {
             const estado = await obtenerEstadoCaja()
+            console.log("📊 Estado de caja recibido:", estado)
 
             if (estado.caja_abierta) {
-                // ✅ Caja abierta: un solo setState con el estado real
                 setCajaAbierta(true)
-                setEstadoCaja(estado)
+                
+                // ✅ Mapear los campos del backend al frontend
+                const estadoMapeado: EstadoCaja = {
+                    caja_abierta: estado.caja_abierta,
+                    caja_actual: estado.caja_actual,
+                    
+                    // 💰 SOLO EFECTIVO (suma a caja)
+                    total_dia_parqueo: estado.total_dia_parqueo || 0,
+                    total_dia_servicios: estado.total_dia_servicios || 0,
+                    total_dia_manuales: estado.total_dia_manuales || 0,
+                    total_dia_total: estado.total_dia_total || 0,
+                    monto_esperado: estado.monto_esperado || 0,
+                    
+                    // 📊 TARJETA (no suma a caja)
+                    total_dia_parqueo_tarjeta: estado.total_dia_parqueo_tarjeta || 0,
+                    total_dia_servicios_tarjeta: estado.total_dia_servicios_tarjeta || 0,
+                    
+                    // 📊 TOTALES (solo informativos)
+                    total_dia_parqueo_total: (estado.total_dia_parqueo || 0) + (estado.total_dia_parqueo_tarjeta || 0),
+                    total_dia_servicios_total: (estado.total_dia_servicios || 0) + (estado.total_dia_servicios_tarjeta || 0),
+                }
+                
+                setEstadoCaja(estadoMapeado)
             } else {
-                // ✅ Caja cerrada: un solo setState con estado vacío limpio
-                // Esto garantiza que AperturaCaja vea el form sin datos anteriores
                 setCajaAbierta(false)
                 setEstadoCaja(ESTADO_CERRADO)
             }
@@ -89,7 +131,6 @@ export function CajaProvider({ children }: { children: ReactNode }) {
 
         try {
             await abrirCajaAPI(montoInicial, operador)
-            // ✅ Refrescar DESPUÉS de que el backend confirme la apertura
             await refrescarEstado()
         } catch (error) {
             throw error
@@ -118,3 +159,4 @@ export function useCaja() {
     }
     return context
 }
+

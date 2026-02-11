@@ -8,9 +8,10 @@ class CategoriaProducto(enum.Enum):
     """Enum para categorías de productos"""
     BEBIDAS = "bebidas"
     SNACKS = "snacks"
+    OTROS = "otros"  # 👈 NUEVA CATEGORÍA
 
 class Producto(Base):
-    """Modelo para productos del hotel (bebidas y snacks)"""
+    """Modelo para productos del hotel (bebidas, snacks y otros)"""
     __tablename__ = 'productos'
     
     id = Column(Integer, primary_key=True, index=True)

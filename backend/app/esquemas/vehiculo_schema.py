@@ -1,6 +1,8 @@
 from pydantic import BaseModel, Field, validator
 from typing import Optional
 from datetime import datetime
+from typing import Literal  # 👈 AGREGAR ESTA IMPORTACIÓN
+
 
 class VehiculoBase(BaseModel):
     """Schema base para vehículos"""
@@ -21,7 +23,8 @@ class VehiculoEntrada(VehiculoBase):
 class VehiculoSalida(BaseModel):
     """Schema para registrar salida de un vehículo"""
     placa: str = Field(..., min_length=1, max_length=20, description="Placa del vehículo")
-    es_no_pagado: bool = Field(False, description="Indica si el vehículo se fue sin pagar") # ✅ NUEVO
+    es_no_pagado: bool = Field(False, description="Indica si el vehículo se fue sin pagar")
+    metodo_pago: Literal["efectivo", "tarjeta"] = Field("efectivo", description="Método de pago")  # 👈 NUEVO
 
     @validator('placa')
     def validar_placa(cls, v):

@@ -65,7 +65,8 @@ def registrar_salida(datos: VehiculoSalida, db: Session = Depends(get_db)):
         resultado = VehiculoService.registrar_salida(
             db, 
             datos.placa,
-            datos.es_no_pagado  # ✅ Pasar el parámetro
+            datos.es_no_pagado,
+            datos.metodo_pago  # 👈 PASAR EL MÉTODO DE PAGO
         )
         vehiculo = resultado['vehiculo']
         factura = resultado['factura']
@@ -82,7 +83,8 @@ def registrar_salida(datos: VehiculoSalida, db: Session = Depends(get_db)):
                 "costo_total": float(vehiculo.costo_total),
                 "detalles": factura.detalles_cobro,
                 "es_nocturno": vehiculo.es_nocturno,
-                "es_no_pagado": vehiculo.es_no_pagado,  # ✅ Agregar al response
+                "es_no_pagado": vehiculo.es_no_pagado,
+                "metodo_pago": datos.metodo_pago,  # 👈 AGREGAR AL RESPONSE
                 "tarifa_aplicada": "NOCTURNA" if vehiculo.es_nocturno else "NORMAL"
             }
         }

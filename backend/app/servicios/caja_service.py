@@ -35,17 +35,35 @@ class CajaService:
     def obtener_totales_desde_caja(db: Session, caja_id: int, fecha_apertura: datetime) -> dict:
         """Obtiene totales desde la apertura de una caja específica"""
         
-        # Parqueo desde la apertura de esta caja
-        total_parqueo = db.query(
+        # =========================================
+        # ✅ PARQUEO - SOLO EFECTIVO (SÍ suma a caja)
+        # =========================================
+        total_parqueo_efectivo = db.query(
             func.sum(HistorialFactura.costo_total)
         ).filter(
             and_(
                 HistorialFactura.fecha_hora_salida >= fecha_apertura,
-                HistorialFactura.es_no_pagado == False
+                HistorialFactura.es_no_pagado == False,
+                HistorialFactura.metodo_pago == "efectivo"  # 👈 SOLO EFECTIVO
             )
         ).scalar() or 0
 
-        # Servicios efectivo desde la apertura de esta caja
+        # =========================================
+        # 📊 PARQUEO - TARJETA (NO suma a caja, solo estadísticas)
+        # =========================================
+        total_parqueo_tarjeta = db.query(
+            func.sum(HistorialFactura.costo_total)
+        ).filter(
+            and_(
+                HistorialFactura.fecha_hora_salida >= fecha_apertura,
+                HistorialFactura.es_no_pagado == False,
+                HistorialFactura.metodo_pago == "tarjeta"
+            )
+        ).scalar() or 0
+
+        # =========================================
+        # ✅ SERVICIOS - EFECTIVO (SÍ suma a caja)
+        # =========================================
         total_servicios_efectivo = db.query(
             func.sum(VentaServicio.total)
         ).filter(
@@ -55,6 +73,9 @@ class CajaService:
             )
         ).scalar() or 0
 
+        # =========================================
+        # 📊 SERVICIOS - TARJETA (NO suma a caja, solo estadísticas)
+        # =========================================
         total_servicios_tarjeta = db.query(
             func.sum(VentaServicio.total)
         ).filter(
@@ -64,7 +85,9 @@ class CajaService:
             )
         ).scalar() or 0
 
-        # Manuales para esta caja específica (solo si la tabla existe)
+        # =========================================
+        # ✅ MANUALES (SÍ suma a caja)
+        # =========================================
         try:
             total_manuales = db.query(
                 func.sum(MovimientoManualCaja.monto)
@@ -72,17 +95,25 @@ class CajaService:
                 MovimientoManualCaja.caja_id == caja_id
             ).scalar() or 0
         except:
-            # Si la tabla no existe aún, no hay manuales
             total_manuales = 0
 
-        total_ingresos = float(total_parqueo) + float(total_servicios_efectivo) + float(total_manuales)
+        # =========================================
+        # ✅ TOTAL INGRESOS = SOLO LO QUE SUMA A CAJA
+        # =========================================
+        total_ingresos = float(total_parqueo_efectivo) + float(total_servicios_efectivo) + float(total_manuales)
 
         return {
-            "total_parqueo": float(total_parqueo),
-            "total_servicios": float(total_servicios_efectivo),
-            "total_servicios_tarjeta": float(total_servicios_tarjeta),
+            # 💰 INGRESOS REALES (Suman a caja)
+            "total_parqueo_efectivo": float(total_parqueo_efectivo),
+            "total_servicios_efectivo": float(total_servicios_efectivo),
             "total_manuales": float(total_manuales),
-            "total_ingresos": total_ingresos,
+            "total_ingresos": total_ingresos,  # 👈 ESTO ES LO QUE SUMA A CAJA
+            
+            # 📊 ESTADÍSTICAS (No suman a caja)
+            "total_parqueo_tarjeta": float(total_parqueo_tarjeta),
+            "total_servicios_tarjeta": float(total_servicios_tarjeta),
+            "total_parqueo_total": float(total_parqueo_efectivo + total_parqueo_tarjeta),
+            "total_servicios_total": float(total_servicios_efectivo + total_servicios_tarjeta),
         }
 
     @staticmethod
@@ -113,14 +144,19 @@ class CajaService:
             raise ValueError("No hay una caja abierta")
 
         totales = CajaService.obtener_totales_desde_caja(db, caja.id, caja.fecha_apertura)
+        
+        # ✅ Monto esperado = inicial + SOLO ingresos que suman a caja
         monto_esperado = float(caja.monto_inicial) + totales["total_ingresos"]
 
         caja.monto_final = monto_final
         caja.fecha_cierre = datetime.now()
         caja.operador_cierre = operador or caja.operador_apertura
-        caja.total_parqueo = totales["total_parqueo"]
-        caja.total_servicios = totales["total_servicios"]
+        
+        # ✅ Guardar SOLO los ingresos que suman a caja
+        caja.total_parqueo = totales["total_parqueo_efectivo"]
+        caja.total_servicios = totales["total_servicios_efectivo"]
         caja.total_ingresos = totales["total_ingresos"]
+        
         caja.monto_esperado = monto_esperado
         caja.diferencia = monto_final - monto_esperado
         caja.estado = EstadoCaja.CERRADA
@@ -143,11 +179,16 @@ class CajaService:
             return {
                 "caja_abierta": False,
                 "caja_actual": None,
+                # 💰 Ingresos reales (suman a caja)
                 "total_dia_parqueo": 0.0,
                 "total_dia_servicios": 0.0,
-                "total_dia_servicios_tarjeta": 0.0,
                 "total_dia_manuales": 0.0,
                 "total_dia_total": 0.0,
+                # 📊 Estadísticas (no suman a caja)
+                "total_dia_parqueo_tarjeta": 0.0,
+                "total_dia_servicios_tarjeta": 0.0,
+                "total_dia_parqueo_total": 0.0,
+                "total_dia_servicios_total": 0.0,
                 "monto_esperado": 0.0,
             }
         
@@ -158,11 +199,19 @@ class CajaService:
         return {
             "caja_abierta": True,
             "caja_actual": caja.to_dict(),
-            "total_dia_parqueo": totales["total_parqueo"],
-            "total_dia_servicios": totales["total_servicios"],
-            "total_dia_servicios_tarjeta": totales["total_servicios_tarjeta"],
+            
+            # 💰 INGRESOS REALES - ESTOS SUMAN A CAJA
+            "total_dia_parqueo": totales["total_parqueo_efectivo"],
+            "total_dia_servicios": totales["total_servicios_efectivo"],
             "total_dia_manuales": totales["total_manuales"],
-            "total_dia_total": totales["total_ingresos"],
+            "total_dia_total": totales["total_ingresos"],  # 👈 SOLO LO QUE SUMA A CAJA
+            
+            # 📊 ESTADÍSTICAS - SOLO INFORMATIVO (NO SUMAN A CAJA)
+            "total_dia_parqueo_tarjeta": totales["total_parqueo_tarjeta"],
+            "total_dia_servicios_tarjeta": totales["total_servicios_tarjeta"],
+            "total_dia_parqueo_total": totales["total_parqueo_total"],
+            "total_dia_servicios_total": totales["total_servicios_total"],
+            
             "monto_esperado": monto_esperado,
         }
 
@@ -207,7 +256,9 @@ class CajaService:
         # Solo obtener movimientos DESDE la apertura de esta caja
         fecha_apertura = caja.fecha_apertura
 
-        # Parqueo desde la apertura
+        # =========================================
+        # ✅ PARQUEO - TODOS (efectivo y tarjeta) para mostrar en el diálogo
+        # =========================================
         facturas = db.query(HistorialFactura).filter(
             and_(
                 HistorialFactura.fecha_hora_salida >= fecha_apertura,
@@ -216,12 +267,15 @@ class CajaService:
         ).order_by(HistorialFactura.fecha_hora_salida.desc()).all()
 
         for f in facturas:
+            metodo_pago = getattr(f, 'metodo_pago', 'efectivo')
             movimientos.append({
                 "id": f"parqueo-{f.id}",
                 "tipo": "parqueo",
                 "descripcion": f"Parqueo {f.placa}",
                 "monto": float(f.costo_total),
-                "fecha": f.fecha_hora_salida.isoformat()
+                "metodo_pago": metodo_pago,
+                "fecha": f.fecha_hora_salida.isoformat(),
+                "suma_a_caja": metodo_pago == "efectivo"  # 👈 Indicador útil
             })
 
         # Servicios desde la apertura
@@ -237,7 +291,8 @@ class CajaService:
                 "descripcion": nombres,
                 "monto": float(v.total),
                 "metodo_pago": v.metodo_pago or "efectivo",
-                "fecha": v.fecha.isoformat()
+                "fecha": v.fecha.isoformat(),
+                "suma_a_caja": v.metodo_pago != "tarjeta"  # 👈 Indicador útil
             })
 
         # Manuales para esta caja específica
@@ -247,9 +302,10 @@ class CajaService:
             ).order_by(MovimientoManualCaja.fecha.desc()).all()
 
             for m in manuales:
-                movimientos.append(m.to_dict())
+                mov_dict = m.to_dict()
+                mov_dict["suma_a_caja"] = True  # 👈 Siempre suma a caja
+                movimientos.append(mov_dict)
         except:
-            # Si la tabla no existe, no hay manuales
             pass
 
         movimientos.sort(key=lambda x: x["fecha"], reverse=True)

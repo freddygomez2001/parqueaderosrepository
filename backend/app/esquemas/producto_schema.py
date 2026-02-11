@@ -3,12 +3,13 @@ from pydantic import BaseModel, Field, validator
 from typing import Optional, Literal
 from datetime import datetime
 
+
 class ProductoBase(BaseModel):
     """Schema base para productos"""
     nombre: str = Field(..., min_length=1, max_length=100)
     precio: float = Field(..., ge=0)
     stock: int = Field(..., ge=0)
-    categoria: Literal["bebidas", "snacks"]
+    categoria: Literal["bebidas", "snacks", "otros"]  # 👈 AGREGAR "otros"
 
     @validator('nombre')
     def nombre_no_vacio(cls, v):
@@ -25,7 +26,7 @@ class ProductoUpdate(BaseModel):
     nombre: Optional[str] = Field(None, min_length=1, max_length=100)
     precio: Optional[float] = Field(None, ge=0)
     stock: Optional[int] = Field(None, ge=0)
-    categoria: Optional[Literal["bebidas", "snacks"]] = None
+    categoria: Optional[Literal["bebidas", "snacks", "otros"]] = None  # 👈 AGREGAR "otros"
     activo: Optional[bool] = None
 
 class ProductoResponse(BaseModel):

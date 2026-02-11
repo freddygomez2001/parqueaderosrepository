@@ -100,30 +100,51 @@ const HOTEL_INFO = {
 }
 
 function tipoBadge(tipo: string, metodoPago?: string) {
+  // ✅ PARQUEO CON TARJETA
+  if (tipo === "parqueo" && metodoPago === "tarjeta") {
+    return (
+      <Badge variant="secondary" className="text-xs">
+        <CreditCard className="h-3 w-3 mr-1" />
+        Parqueo (Tarjeta)
+      </Badge>
+    )
+  }
+  
+  // ✅ PARQUEO CON EFECTIVO (o sin especificar)
   if (tipo === "parqueo") {
     return (
       <Badge variant="default" className="text-xs bg-blue-600 hover:bg-blue-600">
-        <Car className="h-3 w-3 mr-1" />Parqueo
+        <Car className="h-3 w-3 mr-1" />
+        Parqueo
       </Badge>
     )
   }
+  
+  // ✅ EFECTIVO MANUAL
   if (tipo === "efectivo_manual") {
     return (
       <Badge variant="default" className="text-xs bg-amber-500 hover:bg-amber-500">
-        <Plus className="h-3 w-3 mr-1" />Manual
+        <Plus className="h-3 w-3 mr-1" />
+        Manual
       </Badge>
     )
   }
+  
+  // ✅ SERVICIO CON TARJETA
   if (metodoPago === "tarjeta") {
     return (
       <Badge variant="secondary" className="text-xs">
-        <CreditCard className="h-3 w-3 mr-1" />Tarjeta
+        <CreditCard className="h-3 w-3 mr-1" />
+        Servicio (Tarjeta)
       </Badge>
     )
   }
+  
+  // ✅ SERVICIO CON EFECTIVO (por defecto)
   return (
     <Badge variant="default" className="text-xs bg-green-600 hover:bg-green-600">
-      <Banknote className="h-3 w-3 mr-1" />Servicio
+      <Banknote className="h-3 w-3 mr-1" />
+      Servicio
     </Badge>
   )
 }
@@ -355,6 +376,8 @@ function CierreCajaDialog({
 
 // ─── Ticket de cierre ─────────────────────────────────────────────────────────
 
+// ─── Ticket de cierre ─────────────────────────────────────────────────────────
+
 function TicketCierreDialog({
   resumen,
   onClose,
@@ -383,6 +406,11 @@ function TicketCierreDialog({
           th, td { text-align: left; padding: 1px 0; }
           th:last-child, td:last-child { text-align: right; }
           th { border-bottom: 1px solid #000; }
+          .parqueo-efectivo { color: #2563eb; }
+          .parqueo-tarjeta { color: #6b7280; }
+          .servicio-efectivo { color: #16a34a; }
+          .servicio-tarjeta { color: #6b7280; }
+          .manual { color: #d97706; }
         </style>
       </head><body>
         <div class="center bold" style="font-size:13px">${HOTEL_INFO.nombre}</div>
@@ -397,9 +425,9 @@ function TicketCierreDialog({
         <div class="row"><span>Operador:</span><span>${resumen.operador}</span></div>
         <div class="separator"></div>
         <div class="row"><span>Monto inicial:</span><span>$${resumen.montoInicial.toFixed(2)}</span></div>
-        <div class="row"><span>Ingresos parqueo:</span><span>$${resumen.totalParqueo.toFixed(2)}</span></div>
-        <div class="row"><span>Ingresos servicios:</span><span>$${resumen.totalServicios.toFixed(2)}</span></div>
-        <div class="row bold"><span>Total ingresos:</span><span>$${resumen.totalIngresos.toFixed(2)}</span></div>
+        <div class="row"><span>Ingresos parqueo (efectivo):</span><span>$${resumen.totalParqueo.toFixed(2)}</span></div>
+        <div class="row"><span>Ingresos servicios (efectivo):</span><span>$${resumen.totalServicios.toFixed(2)}</span></div>
+        <div class="row bold"><span>Total ingresos efectivo:</span><span>$${resumen.totalIngresos.toFixed(2)}</span></div>
         <div class="separator"></div>
         <div class="row total"><span>Monto esperado:</span><span>$${resumen.montoEsperado.toFixed(2)}</span></div>
         <div class="row total"><span>Monto físico:</span><span>$${resumen.montoFisico.toFixed(2)}</span></div>
@@ -410,16 +438,48 @@ function TicketCierreDialog({
         <div class="separator"></div>
         <div style="font-size:9px;font-weight:bold;margin-bottom:2px">Movimientos del turno (${resumen.movimientos.length})</div>
         <table>
-          <thead><tr><th>Hora</th><th>Tipo</th><th>Descripción</th><th>Monto</th></tr></thead>
+          <thead><tr>
+            <th>Hora</th>
+            <th>Tipo</th>
+            <th>Descripción</th>
+            <th>Monto</th>
+          </tr></thead>
           <tbody>
-            ${resumen.movimientos.map((m) => `
-              <tr>
-                <td>${new Date(m.fecha).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}</td>
-                <td>${m.tipo === "parqueo" ? "Parqueo" : m.tipo === "efectivo_manual" ? "Manual" : m.metodo_pago === "tarjeta" ? "Tarjeta" : "Servicio"}</td>
-                <td>${m.descripcion.substring(0, 18)}</td>
-                <td>$${m.monto.toFixed(2)}</td>
-              </tr>
-            `).join("")}
+            ${resumen.movimientos.map((m) => {
+              // Determinar el texto del tipo y la clase CSS
+              let tipoTexto = ""
+              let claseCSS = ""
+              
+              if (m.tipo === "parqueo") {
+                if (m.metodo_pago === "tarjeta") {
+                  tipoTexto = "Parqueo (T)"
+                  claseCSS = "parqueo-tarjeta"
+                } else {
+                  tipoTexto = "Parqueo"
+                  claseCSS = "parqueo-efectivo"
+                }
+              } else if (m.tipo === "efectivo_manual") {
+                tipoTexto = "Manual"
+                claseCSS = "manual"
+              } else if (m.tipo === "servicio") {
+                if (m.metodo_pago === "tarjeta") {
+                  tipoTexto = "Servicio (T)"
+                  claseCSS = "servicio-tarjeta"
+                } else {
+                  tipoTexto = "Servicio"
+                  claseCSS = "servicio-efectivo"
+                }
+              }
+              
+              return `
+                <tr>
+                  <td>${new Date(m.fecha).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}</td>
+                  <td class="${claseCSS}">${tipoTexto}</td>
+                  <td>${m.descripcion.substring(0, 18)}</td>
+                  <td>$${m.monto.toFixed(2)}</td>
+                </tr>
+              `
+            }).join("")}
           </tbody>
         </table>
         <div class="separator"></div>
@@ -452,9 +512,18 @@ function TicketCierreDialog({
           <div className="space-y-1">
             <div className="flex justify-between text-sm"><span className="text-muted-foreground">Operador:</span><span className="font-medium">{resumen.operador}</span></div>
             <div className="flex justify-between text-sm"><span className="text-muted-foreground">Monto inicial:</span><span>${resumen.montoInicial.toFixed(2)}</span></div>
-            <div className="flex justify-between text-sm"><span className="text-muted-foreground">Parqueo:</span><span className="text-blue-600">+${resumen.totalParqueo.toFixed(2)}</span></div>
-            <div className="flex justify-between text-sm"><span className="text-muted-foreground">Servicios (efectivo):</span><span className="text-green-600">+${resumen.totalServicios.toFixed(2)}</span></div>
-            <div className="flex justify-between text-sm font-semibold border-t border-dashed pt-1 mt-1"><span>Total ingresos:</span><span>${resumen.totalIngresos.toFixed(2)}</span></div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Parqueo (efectivo):</span>
+              <span className="text-blue-600">+${resumen.totalParqueo.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Servicios (efectivo):</span>
+              <span className="text-green-600">+${resumen.totalServicios.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-sm font-semibold border-t border-dashed pt-1 mt-1">
+              <span>Total ingresos efectivo:</span>
+              <span>${resumen.totalIngresos.toFixed(2)}</span>
+            </div>
           </div>
           <div className="border-t-2 border-dashed pt-2 space-y-1">
             <div className="flex justify-between text-sm"><span className="text-muted-foreground">Monto esperado:</span><span className="font-bold">${resumen.montoEsperado.toFixed(2)}</span></div>
@@ -467,16 +536,50 @@ function TicketCierreDialog({
           {resumen.movimientos.length > 0 && (
             <div className="border-t border-dashed pt-2">
               <p className="text-xs font-bold text-muted-foreground mb-1">Movimientos ({resumen.movimientos.length})</p>
-              <div className="space-y-1">
-                {resumen.movimientos.map((m) => (
-                  <div key={m.id} className="flex justify-between text-xs">
-                    <span className="text-muted-foreground truncate max-w-[200px]">
-                      {new Date(m.fecha).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}
-                      {" — "}{m.descripcion}
-                    </span>
-                    <span className="font-medium shrink-0 ml-2">${m.monto.toFixed(2)}</span>
-                  </div>
-                ))}
+              <div className="space-y-1 max-h-[200px] overflow-y-auto">
+                {resumen.movimientos.map((m) => {
+                  // Determinar el color del texto según el tipo
+                  let colorClass = ""
+                  let tipoDisplay = ""
+                  
+                  if (m.tipo === "parqueo") {
+                    if (m.metodo_pago === "tarjeta") {
+                      colorClass = "text-gray-500"
+                      tipoDisplay = "Parqueo (T)"
+                    } else {
+                      colorClass = "text-blue-600"
+                      tipoDisplay = "Parqueo"
+                    }
+                  } else if (m.tipo === "efectivo_manual") {
+                    colorClass = "text-amber-600"
+                    tipoDisplay = "Manual"
+                  } else if (m.tipo === "servicio") {
+                    if (m.metodo_pago === "tarjeta") {
+                      colorClass = "text-gray-500"
+                      tipoDisplay = "Servicio (T)"
+                    } else {
+                      colorClass = "text-green-600"
+                      tipoDisplay = "Servicio"
+                    }
+                  }
+                  
+                  return (
+                    <div key={m.id} className="flex justify-between text-xs">
+                      <span className="text-muted-foreground truncate max-w-[120px]">
+                        {new Date(m.fecha).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      <span className={`${colorClass} font-medium mx-1`}>
+                        {tipoDisplay}
+                      </span>
+                      <span className="text-muted-foreground truncate max-w-[120px]">
+                        {m.descripcion.substring(0, 15)}
+                      </span>
+                      <span className={`font-medium shrink-0 ml-2 ${colorClass}`}>
+                        ${m.monto.toFixed(2)}
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -532,19 +635,18 @@ function CajaDialog({
 
   const movimientos = movimientosData?.movimientos ?? []
 
-const handleCerrado = (resumen: CierreResumen) => {
+  const handleCerrado = (resumen: CierreResumen) => {
     // ✅ Cerrar dialog de caja primero
     onOpenChange(false)
     
-    // ✅ Esperar un momento para que el backend procese el cierre
-    setTimeout(() => {
-        onRefresh()
-        // ✅ Mostrar ticket después de que se haya refrescado el estado
-        setTimeout(() => {
-            onCajaCerrada(resumen)
-        }, 500)
-    }, 500)
-}
+    // ✅ Mostrar el ticket inmediatamente con el resumen capturado
+    onCajaCerrada(resumen)
+    
+    // ✅ Refrescar el estado después de mostrar el ticket
+     //setTimeout(() => {
+        // onRefresh()
+     //}, 1000) // Esperar 1 segundo para que el usuario vea el ticket
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -680,13 +782,12 @@ export function Dashboard() {
   // ✅ Ticket vive en el root del Dashboard — nunca se desmonta por otro dialog
   const [cierreResumen, setCierreResumen] = useState<CierreResumen | null>(null)
 
-
 const handleRefrescar = async () => {
     setRefrescando(true)
     try {
         await refrescarEstado()
         // Forzar un pequeño delay para asegurar que el backend haya procesado
-        await new Promise(resolve => setTimeout(resolve, 300))
+        await new Promise(resolve => setTimeout(resolve, 500))
     } catch (error) {
         toast.error("Error al refrescar estado")
     } finally {
@@ -856,6 +957,7 @@ const handleRefrescar = async () => {
           resumen={cierreResumen}
           onClose={() => {
             setCierreResumen(null)
+            handleRefrescar()
           }}
         />
       )}
