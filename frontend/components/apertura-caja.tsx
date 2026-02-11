@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useCaja } from "@/lib/caja-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -20,7 +20,14 @@ export function AperturaCaja() {
   const [monto, setMonto] = useState("")
   const [error, setError] = useState("")
   const [abriendo, setAbriendo] = useState(false)
-  const { abrirCaja } = useCaja()
+  const { abrirCaja, estadoCaja } = useCaja()
+
+  useEffect(() => {
+    if (estadoCaja && estadoCaja.caja_abierta) {
+      // Si por alguna razón el estado muestra caja abierta, forzar reset
+      setMonto("")
+    }
+  }, [estadoCaja])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

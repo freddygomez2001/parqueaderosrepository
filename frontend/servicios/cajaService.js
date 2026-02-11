@@ -8,8 +8,12 @@ const CAJA_URL = `${BASE_URL}/api/caja`;
  */
 export async function obtenerEstadoCaja() {
   try {
-    const response = await fetch(`${CAJA_URL}/estado`, {
+    const response = await fetch(`${CAJA_URL}/estado?_t=${Date.now()}`, {  // Agregar timestamp para evitar cache
       method: "GET",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+      },
     });
 
     if (!response.ok) {

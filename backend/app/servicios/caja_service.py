@@ -29,7 +29,61 @@ class CajaService:
                 Caja.fecha_apertura >= inicio_dia,
                 Caja.fecha_apertura < fin_dia
             )
-        ).first()
+        ).order_by(Caja.fecha_apertura.desc()).first()
+
+    @staticmethod
+    def obtener_totales_desde_caja(db: Session, caja_id: int, fecha_apertura: datetime) -> dict:
+        """Obtiene totales desde la apertura de una caja específica"""
+        
+        # Parqueo desde la apertura de esta caja
+        total_parqueo = db.query(
+            func.sum(HistorialFactura.costo_total)
+        ).filter(
+            and_(
+                HistorialFactura.fecha_hora_salida >= fecha_apertura,
+                HistorialFactura.es_no_pagado == False
+            )
+        ).scalar() or 0
+
+        # Servicios efectivo desde la apertura de esta caja
+        total_servicios_efectivo = db.query(
+            func.sum(VentaServicio.total)
+        ).filter(
+            and_(
+                VentaServicio.fecha >= fecha_apertura,
+                VentaServicio.metodo_pago != "tarjeta"
+            )
+        ).scalar() or 0
+
+        total_servicios_tarjeta = db.query(
+            func.sum(VentaServicio.total)
+        ).filter(
+            and_(
+                VentaServicio.fecha >= fecha_apertura,
+                VentaServicio.metodo_pago == "tarjeta"
+            )
+        ).scalar() or 0
+
+        # Manuales para esta caja específica (solo si la tabla existe)
+        try:
+            total_manuales = db.query(
+                func.sum(MovimientoManualCaja.monto)
+            ).filter(
+                MovimientoManualCaja.caja_id == caja_id
+            ).scalar() or 0
+        except:
+            # Si la tabla no existe aún, no hay manuales
+            total_manuales = 0
+
+        total_ingresos = float(total_parqueo) + float(total_servicios_efectivo) + float(total_manuales)
+
+        return {
+            "total_parqueo": float(total_parqueo),
+            "total_servicios": float(total_servicios_efectivo),
+            "total_servicios_tarjeta": float(total_servicios_tarjeta),
+            "total_manuales": float(total_manuales),
+            "total_ingresos": total_ingresos,
+        }
 
     @staticmethod
     def abrir_caja(db: Session, monto_inicial: float, operador: str, notas: Optional[str] = None) -> Caja:
@@ -58,8 +112,7 @@ class CajaService:
         if not caja:
             raise ValueError("No hay una caja abierta")
 
-        totales = CajaService.obtener_totales_dia(db)
-        # ✅ incluye manuales en monto_esperado
+        totales = CajaService.obtener_totales_desde_caja(db, caja.id, caja.fecha_apertura)
         monto_esperado = float(caja.monto_inicial) + totales["total_ingresos"]
 
         caja.monto_final = monto_final
@@ -82,79 +135,33 @@ class CajaService:
     # =========================
 
     @staticmethod
-    def obtener_totales_dia(db: Session) -> dict:
-        hoy = date.today()
-        inicio_dia = datetime.combine(hoy, datetime.min.time())
-        fin_dia = datetime.combine(hoy + timedelta(days=1), datetime.min.time())
-
-        # Parqueo (siempre efectivo)
-        total_parqueo = db.query(
-            func.sum(HistorialFactura.costo_total)
-        ).filter(
-            and_(
-                HistorialFactura.fecha_hora_salida >= inicio_dia,
-                HistorialFactura.fecha_hora_salida < fin_dia,
-                HistorialFactura.es_no_pagado == False
-            )
-        ).scalar() or 0
-
-        # Servicios efectivo (tarjeta NO entra a caja física)
-        total_servicios_efectivo = db.query(
-            func.sum(VentaServicio.total)
-        ).filter(
-            and_(
-                VentaServicio.fecha >= inicio_dia,
-                VentaServicio.fecha < fin_dia,
-                VentaServicio.metodo_pago != "tarjeta"
-            )
-        ).scalar() or 0
-
-        total_servicios_tarjeta = db.query(
-            func.sum(VentaServicio.total)
-        ).filter(
-            and_(
-                VentaServicio.fecha >= inicio_dia,
-                VentaServicio.fecha < fin_dia,
-                VentaServicio.metodo_pago == "tarjeta"
-            )
-        ).scalar() or 0
-
-        # ✅ MANUALES — efectivo que se agrega a caja manualmente
-        total_manuales = db.query(
-            func.sum(MovimientoManualCaja.monto)
-        ).filter(
-            and_(
-                MovimientoManualCaja.fecha >= inicio_dia,
-                MovimientoManualCaja.fecha < fin_dia
-            )
-        ).scalar() or 0
-
-        # total_ingresos = físicamente lo que entró a caja
-        total_ingresos = float(total_parqueo) + float(total_servicios_efectivo) + float(total_manuales)
-
-        return {
-            "total_parqueo": float(total_parqueo),
-            "total_servicios": float(total_servicios_efectivo),
-            "total_servicios_tarjeta": float(total_servicios_tarjeta),
-            "total_manuales": float(total_manuales),
-            "total_ingresos": total_ingresos,
-        }
-
-    @staticmethod
     def obtener_estado_caja(db: Session) -> dict:
         caja = CajaService.verificar_caja_abierta(db)
-        totales = CajaService.obtener_totales_dia(db)
-
-        monto_esperado = (
-            float(caja.monto_inicial) + totales["total_ingresos"]
-            if caja else 0
-        )
+        
+        # Si no hay caja abierta, devolver estructura vacía
+        if not caja:
+            return {
+                "caja_abierta": False,
+                "caja_actual": None,
+                "total_dia_parqueo": 0.0,
+                "total_dia_servicios": 0.0,
+                "total_dia_servicios_tarjeta": 0.0,
+                "total_dia_manuales": 0.0,
+                "total_dia_total": 0.0,
+                "monto_esperado": 0.0,
+            }
+        
+        # Si hay caja abierta, calcular totales DESDE ESA CAJA
+        totales = CajaService.obtener_totales_desde_caja(db, caja.id, caja.fecha_apertura)
+        monto_esperado = float(caja.monto_inicial) + totales["total_ingresos"]
 
         return {
-            "caja_abierta": caja is not None,
-            "caja_actual": caja.to_dict() if caja else None,
+            "caja_abierta": True,
+            "caja_actual": caja.to_dict(),
             "total_dia_parqueo": totales["total_parqueo"],
             "total_dia_servicios": totales["total_servicios"],
+            "total_dia_servicios_tarjeta": totales["total_servicios_tarjeta"],
+            "total_dia_manuales": totales["total_manuales"],
             "total_dia_total": totales["total_ingresos"],
             "monto_esperado": monto_esperado,
         }
@@ -190,17 +197,20 @@ class CajaService:
 
     @staticmethod
     def obtener_movimientos_dia(db: Session) -> list:
-        hoy = date.today()
-        inicio_dia = datetime.combine(hoy, datetime.min.time())
-        fin_dia = datetime.combine(hoy + timedelta(days=1), datetime.min.time())
-
+        caja = CajaService.verificar_caja_abierta(db)
         movimientos = []
+        
+        # Si no hay caja abierta, devolver lista vacía
+        if not caja:
+            return movimientos
+        
+        # Solo obtener movimientos DESDE la apertura de esta caja
+        fecha_apertura = caja.fecha_apertura
 
-        # Parqueo
+        # Parqueo desde la apertura
         facturas = db.query(HistorialFactura).filter(
             and_(
-                HistorialFactura.fecha_hora_salida >= inicio_dia,
-                HistorialFactura.fecha_hora_salida < fin_dia,
+                HistorialFactura.fecha_hora_salida >= fecha_apertura,
                 HistorialFactura.es_no_pagado == False
             )
         ).order_by(HistorialFactura.fecha_hora_salida.desc()).all()
@@ -214,12 +224,9 @@ class CajaService:
                 "fecha": f.fecha_hora_salida.isoformat()
             })
 
-        # Servicios
+        # Servicios desde la apertura
         ventas = db.query(VentaServicio).filter(
-            and_(
-                VentaServicio.fecha >= inicio_dia,
-                VentaServicio.fecha < fin_dia
-            )
+            VentaServicio.fecha >= fecha_apertura
         ).order_by(VentaServicio.fecha.desc()).all()
 
         for v in ventas:
@@ -233,16 +240,17 @@ class CajaService:
                 "fecha": v.fecha.isoformat()
             })
 
-        # ✅ Manuales
-        manuales = db.query(MovimientoManualCaja).filter(
-            and_(
-                MovimientoManualCaja.fecha >= inicio_dia,
-                MovimientoManualCaja.fecha < fin_dia
-            )
-        ).order_by(MovimientoManualCaja.fecha.desc()).all()
+        # Manuales para esta caja específica
+        try:
+            manuales = db.query(MovimientoManualCaja).filter(
+                MovimientoManualCaja.caja_id == caja.id
+            ).order_by(MovimientoManualCaja.fecha.desc()).all()
 
-        for m in manuales:
-            movimientos.append(m.to_dict())
+            for m in manuales:
+                movimientos.append(m.to_dict())
+        except:
+            # Si la tabla no existe, no hay manuales
+            pass
 
         movimientos.sort(key=lambda x: x["fecha"], reverse=True)
         return movimientos

@@ -532,17 +532,19 @@ function CajaDialog({
 
   const movimientos = movimientosData?.movimientos ?? []
 
-  const handleCerrado = (resumen: CierreResumen) => {
+const handleCerrado = (resumen: CierreResumen) => {
     // ✅ Cerrar dialog de caja primero
     onOpenChange(false)
-    // ✅ Refrescar contexto (limpiará estado)
-    onRefresh()
-    // ✅ Montar el ticket en el siguiente frame — garantiza que
-    //    CajaDialog ya esté desmontado cuando aparezca el ticket
-    requestAnimationFrame(() => {
-      onCajaCerrada(resumen)
-    })
-  }
+    
+    // ✅ Esperar un momento para que el backend procese el cierre
+    setTimeout(() => {
+        onRefresh()
+        // ✅ Mostrar ticket después de que se haya refrescado el estado
+        setTimeout(() => {
+            onCajaCerrada(resumen)
+        }, 500)
+    }, 500)
+}
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -678,14 +680,19 @@ export function Dashboard() {
   // ✅ Ticket vive en el root del Dashboard — nunca se desmonta por otro dialog
   const [cierreResumen, setCierreResumen] = useState<CierreResumen | null>(null)
 
-  const handleRefrescar = async () => {
+
+const handleRefrescar = async () => {
     setRefrescando(true)
     try {
-      await refrescarEstado()
+        await refrescarEstado()
+        // Forzar un pequeño delay para asegurar que el backend haya procesado
+        await new Promise(resolve => setTimeout(resolve, 300))
+    } catch (error) {
+        toast.error("Error al refrescar estado")
     } finally {
-      setRefrescando(false)
+        setRefrescando(false)
     }
-  }
+}
 
   return (
     <div className="min-h-screen bg-muted">
