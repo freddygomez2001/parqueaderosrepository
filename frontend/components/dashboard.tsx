@@ -51,29 +51,39 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  DollarSign,
+  Calculator,
+  Minus,  // ✅ IMPORTAR Minus para egresos
 } from "lucide-react"
 import {
   obtenerMovimientosCaja,
   agregarEfectivoCaja,
   cerrarCaja,
+  registrarEgresoCaja,  // ✅ NUEVO: Importar servicio de egresos
 } from "@/servicios/cajaService"
+import { DenominacionesCaja } from "@/components/denominaciones-caja"
+import { RetirarEfectivoDialog } from "@/components/retirar-efectivo-dialog"  // ✅ NUEVO: Importar componente de egresos
 import { toast } from "sonner"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface MovimientoCaja {
   id: string
-  tipo: "parqueo" | "servicio" | "efectivo_manual"
+  tipo: "parqueo" | "servicio" | "efectivo_manual" | "egreso"  // ✅ AGREGAR 'egreso'
   descripcion: string
   monto: number
   metodo_pago?: string
   fecha: string
 }
 
+// En dashboard.tsx - Actualizar la interfaz MovimientosResponse
+
 interface MovimientosResponse {
   movimientos: MovimientoCaja[]
   total_efectivo: number
   total_tarjeta: number
+  total_egresos: number      // ✅ AGREGAR
+  saldo_neto: number         // ✅ AGREGAR
   total_movimientos: number
 }
 
@@ -82,12 +92,22 @@ interface CierreResumen {
   totalParqueo: number
   totalServicios: number
   totalIngresos: number
+  totalEgresos?: number      // ✅ NUEVO
+  saldoNeto?: number         // ✅ NUEVO
   montoEsperado: number
   montoFisico: number
   diferencia: number
   operador: string
   fechaCierre: string
   movimientos: MovimientoCaja[]
+  denominaciones?: {
+    items: Array<{
+      denominacion: number
+      cantidad: number
+      subtotal: number
+    }>
+    total: number
+  }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -100,6 +120,16 @@ const HOTEL_INFO = {
 }
 
 function tipoBadge(tipo: string, metodoPago?: string) {
+  // ✅ EGRESO / RETIRO DE EFECTIVO
+  if (tipo === "egreso") {
+    return (
+      <Badge variant="destructive" className="text-xs">
+        <Minus className="h-3 w-3 mr-1" />
+        Retiro
+      </Badge>
+    )
+  }
+
   // ✅ PARQUEO CON TARJETA
   if (tipo === "parqueo" && metodoPago === "tarjeta") {
     return (
@@ -109,7 +139,7 @@ function tipoBadge(tipo: string, metodoPago?: string) {
       </Badge>
     )
   }
-  
+
   // ✅ PARQUEO CON EFECTIVO (o sin especificar)
   if (tipo === "parqueo") {
     return (
@@ -119,7 +149,7 @@ function tipoBadge(tipo: string, metodoPago?: string) {
       </Badge>
     )
   }
-  
+
   // ✅ EFECTIVO MANUAL
   if (tipo === "efectivo_manual") {
     return (
@@ -129,7 +159,7 @@ function tipoBadge(tipo: string, metodoPago?: string) {
       </Badge>
     )
   }
-  
+
   // ✅ SERVICIO CON TARJETA
   if (metodoPago === "tarjeta") {
     return (
@@ -139,7 +169,7 @@ function tipoBadge(tipo: string, metodoPago?: string) {
       </Badge>
     )
   }
-  
+
   // ✅ SERVICIO CON EFECTIVO (por defecto)
   return (
     <Badge variant="default" className="text-xs bg-green-600 hover:bg-green-600">
@@ -260,32 +290,46 @@ function CierreCajaDialog({
   onCerrado: (resumen: CierreResumen) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [modoCierre, setModoCierre] = useState<"directo" | "denominaciones">("directo")
   const [montoFisico, setMontoFisico] = useState("")
+  const [denominacionesData, setDenominacionesData] = useState<any>(null)
   const [cerrando, setCerrando] = useState(false)
 
   const montoEsperado = estadoCaja?.monto_esperado ?? 0
-  const montoFisicoNum = parseFloat(montoFisico) || 0
+  const montoFisicoNum = modoCierre === "directo"
+    ? (parseFloat(montoFisico) || 0)
+    : (denominacionesData?.total || 0)
   const diferencia = montoFisicoNum - montoEsperado
 
   const handleCerrar = async () => {
-    if (!montoFisico) return
+    if (modoCierre === "directo" && !montoFisico) return
+    if (modoCierre === "denominaciones" && !denominacionesData?.total) return
+
     setCerrando(true)
     const toastId = toast.loading("Cerrando caja...")
-    try {
-      await cerrarCaja(montoFisicoNum, operador)
 
-      // ✅ Capturar resumen ANTES de cerrar el dialog
+    try {
+      await cerrarCaja(
+        montoFisicoNum,
+        operador,
+        undefined,
+        modoCierre === "denominaciones" ? denominacionesData : undefined
+      )
+
       const resumen: CierreResumen = {
         montoInicial: estadoCaja?.caja_actual?.monto_inicial ?? 0,
         totalParqueo: estadoCaja?.total_dia_parqueo ?? 0,
         totalServicios: estadoCaja?.total_dia_servicios ?? 0,
         totalIngresos: estadoCaja?.total_dia_total ?? 0,
+        totalEgresos: estadoCaja?.total_dia_egresos ?? 0,
+        saldoNeto: estadoCaja?.saldo_neto ?? estadoCaja?.total_dia_total ?? 0,
         montoEsperado,
         montoFisico: montoFisicoNum,
         diferencia,
         operador,
         fechaCierre: new Date().toISOString(),
         movimientos: [...movimientos],
+        denominaciones: modoCierre === "denominaciones" ? denominacionesData : undefined
       }
 
       toast.success("Caja cerrada exitosamente", {
@@ -295,7 +339,6 @@ function CierreCajaDialog({
 
       setMontoFisico("")
       setOpen(false)
-      // ✅ Pasar resumen al padre inmediatamente (sin setTimeout)
       onCerrado(resumen)
     } catch (error) {
       toast.error("Error al cerrar caja", {
@@ -314,58 +357,126 @@ function CierreCajaDialog({
         <Vault className="h-4 w-4" />
         Cerrar caja
       </Button>
+
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader className="pb-2">
             <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-destructive/10">
-                <Vault className="h-4 w-4 text-destructive" />
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-destructive/10">
+                <Vault className="h-3.5 w-3.5 text-destructive" />
               </div>
-              <DialogTitle>Cerrar caja</DialogTitle>
+              <DialogTitle className="text-base">Cerrar caja</DialogTitle>
             </div>
-            <DialogDescription>
-              Ingresa el monto físico contado en caja para calcular la diferencia.
+            <DialogDescription className="text-xs">
+              Ingresa el monto físico contado
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <div className="rounded-lg bg-muted/50 p-3">
-                <p className="text-xs text-muted-foreground">Monto inicial</p>
-                <p className="font-bold">${(estadoCaja?.caja_actual?.monto_inicial ?? 0).toFixed(2)}</p>
+
+          <div className="space-y-3 py-1">
+            {/* Resumen de caja con egresos */}
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-lg bg-muted/50 p-2">
+                <p className="text-[10px] text-muted-foreground">Monto inicial</p>
+                <p className="text-sm font-bold">${(estadoCaja?.caja_actual?.monto_inicial ?? 0).toFixed(2)}</p>
               </div>
-              <div className="rounded-lg bg-green-500/10 p-3">
-                <p className="text-xs text-muted-foreground">Total ingresos</p>
-                <p className="font-bold text-green-600">${(estadoCaja?.total_dia_total ?? 0).toFixed(2)}</p>
+              <div className="rounded-lg bg-green-500/10 p-2">
+                <p className="text-[10px] text-muted-foreground">Ingresos</p>
+                <p className="text-sm font-bold text-green-600">${(estadoCaja?.total_dia_total ?? 0).toFixed(2)}</p>
               </div>
-              <div className="rounded-lg bg-primary/10 p-3 col-span-2 text-center">
-                <p className="text-xs text-muted-foreground">Monto esperado en caja</p>
-                <p className="text-xl font-bold text-primary">${montoEsperado.toFixed(2)}</p>
+              {estadoCaja?.total_dia_egresos > 0 && (
+                <div className="rounded-lg bg-red-500/10 p-2">
+                  <p className="text-[10px] text-muted-foreground">Egresos</p>
+                  <p className="text-sm font-bold text-red-600">-${estadoCaja.total_dia_egresos.toFixed(2)}</p>
+                </div>
+              )}
+              <div className={`rounded-lg ${estadoCaja?.total_dia_egresos > 0 ? 'bg-primary/10' : 'bg-primary/10 col-span-2'} p-2 text-center`}>
+                <p className="text-[10px] text-muted-foreground">Saldo neto</p>
+                <p className="text-lg font-bold text-primary">
+                  ${(estadoCaja?.saldo_neto ?? estadoCaja?.monto_esperado ?? 0).toFixed(2)}
+                </p>
               </div>
             </div>
-            <div className="grid gap-2">
-              <Label>Monto físico contado ($)</Label>
-              <Input
-                type="number" step="0.01" min="0" placeholder="0.00"
-                value={montoFisico} onChange={(e) => setMontoFisico(e.target.value)}
-                className="text-xl font-mono h-12" autoFocus
-              />
-            </div>
-            {montoFisico && (
-              <div className={`rounded-lg p-3 text-center ${diferencia >= 0 ? "bg-green-500/10" : "bg-destructive/10"}`}>
-                <p className="text-xs text-muted-foreground">Diferencia</p>
-                <p className={`text-lg font-bold ${diferencia >= 0 ? "text-green-600" : "text-destructive"}`}>
+
+            {/* Tabs de cierre */}
+            <Tabs
+              value={modoCierre}
+              onValueChange={(v) => setModoCierre(v as "directo" | "denominaciones")}
+              className="w-full"
+            >
+              <TabsList className="grid w-full grid-cols-2 h-8">
+                <TabsTrigger value="directo" className="gap-1 text-xs py-1">
+                  <DollarSign className="h-3.5 w-3.5" />
+                  Directo
+                </TabsTrigger>
+                <TabsTrigger value="denominaciones" className="gap-1 text-xs py-1">
+                  <Calculator className="h-3.5 w-3.5" />
+                  Denominaciones
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="directo" className="mt-2">
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Monto físico contado ($)</Label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00"
+                      value={montoFisico}
+                      onChange={(e) => setMontoFisico(e.target.value)}
+                      className="pl-8 text-xl h-11 font-mono"
+                      autoFocus
+                    />
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="denominaciones" className="mt-2">
+                <DenominacionesCaja
+                  totalEsperado={estadoCaja?.saldo_neto ?? estadoCaja?.monto_esperado ?? 0}
+                  onDenominacionesChange={setDenominacionesData}
+                  disabled={cerrando}
+                  compact={true}
+                />
+              </TabsContent>
+            </Tabs>
+
+            {/* Diferencia */}
+            {montoFisicoNum > 0 && (
+              <div className={`rounded-lg p-2 text-center ${diferencia >= 0 ? "bg-green-500/10" : "bg-destructive/10"
+                }`}>
+                <p className="text-[10px] text-muted-foreground">Diferencia</p>
+                <p className={`text-base font-bold ${diferencia >= 0 ? "text-green-600" : "text-destructive"
+                  }`}>
                   {diferencia >= 0 ? "+" : ""}${diferencia.toFixed(2)}
                 </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {diferencia === 0 ? "Cuadre perfecto ✓" : diferencia > 0 ? "Sobrante en caja" : "Faltante en caja"}
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {diferencia === 0
+                    ? "✓ Cuadre perfecto"
+                    : diferencia > 0
+                      ? "Sobrante"
+                      : "Faltante"}
                 </p>
               </div>
             )}
           </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setOpen(false)} disabled={cerrando}>Cancelar</Button>
-            <Button variant="destructive" onClick={handleCerrar} disabled={!montoFisico || cerrando}>
-              {cerrando ? "Cerrando..." : "Confirmar cierre"}
+
+          <DialogFooter className="gap-2 mt-2">
+            <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={cerrando}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleCerrar}
+              disabled={
+                cerrando ||
+                (modoCierre === "directo" ? !montoFisico : !denominacionesData?.total)
+              }
+            >
+              {cerrando ? "Cerrando..." : "Confirmar"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -373,8 +484,6 @@ function CierreCajaDialog({
     </>
   )
 }
-
-// ─── Ticket de cierre ─────────────────────────────────────────────────────────
 
 // ─── Ticket de cierre ─────────────────────────────────────────────────────────
 
@@ -389,6 +498,12 @@ function TicketCierreDialog({
     const printWindow = window.open("", "", "width=72mm,height=800")
     if (!printWindow) return
 
+    const denominaciones = resumen.denominaciones?.items || []
+    const billetes = denominaciones.filter(d => d.denominacion >= 1)
+    const monedas = denominaciones.filter(d => d.denominacion < 1)
+    const totalBilletes = billetes.reduce((sum, d) => sum + d.subtotal, 0)
+    const totalMonedas = monedas.reduce((sum, d) => sum + d.subtotal, 0)
+
     printWindow.document.write(`
       <!DOCTYPE html><html><head>
         <meta charset="UTF-8">
@@ -401,18 +516,17 @@ function TicketCierreDialog({
           .separator { border: none; border-top: 1px dashed #000; margin: 4px 0; }
           .row { display: flex; justify-content: space-between; margin: 2px 0; }
           .total { font-size: 14px; font-weight: bold; margin: 5px 0; }
-          .diff-pos { color: #16a34a; } .diff-neg { color: #dc2626; }
-          table { width: 100%; border-collapse: collapse; margin: 3px 0; font-size: 9px; }
-          th, td { text-align: left; padding: 1px 0; }
-          th:last-child, td:last-child { text-align: right; }
-          th { border-bottom: 1px solid #000; }
-          .parqueo-efectivo { color: #2563eb; }
-          .parqueo-tarjeta { color: #6b7280; }
-          .servicio-efectivo { color: #16a34a; }
-          .servicio-tarjeta { color: #6b7280; }
-          .manual { color: #d97706; }
+          .diff-pos { color: #000; } .diff-neg { color: #dc2626; }
+          .denom-table { width: 100%; border-collapse: collapse; margin: 3px 0; font-size: 9px; }
+          .denom-table td { padding: 1px 0; }
+          .denom-table td:last-child { text-align: right; }
+          .section-title { font-size: 10px; font-weight: bold; margin-top: 5px; margin-bottom: 2px; }
+          .billete { color: #000; }
+          .moneda { color: #000; }
+          .egreso { color: #000; }
         </style>
       </head><body>
+        <!-- HEADER -->
         <div class="center bold" style="font-size:13px">${HOTEL_INFO.nombre}</div>
         <div class="center" style="font-size:9px">${HOTEL_INFO.direccion}</div>
         <div class="center" style="font-size:9px">Tel: ${HOTEL_INFO.telefono}</div>
@@ -420,71 +534,114 @@ function TicketCierreDialog({
         <div class="separator"></div>
         <div class="center bold">CIERRE DE CAJA</div>
         <div class="separator"></div>
+        
+        <!-- INFORMACIÓN GENERAL -->
         <div class="row"><span>Fecha:</span><span>${new Date(resumen.fechaCierre).toLocaleDateString("es-EC")}</span></div>
         <div class="row"><span>Hora:</span><span>${new Date(resumen.fechaCierre).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}</span></div>
         <div class="row"><span>Operador:</span><span>${resumen.operador}</span></div>
         <div class="separator"></div>
+        
+        <!-- RESUMEN DE CAJA -->
         <div class="row"><span>Monto inicial:</span><span>$${resumen.montoInicial.toFixed(2)}</span></div>
-        <div class="row"><span>Ingresos parqueo (efectivo):</span><span>$${resumen.totalParqueo.toFixed(2)}</span></div>
-        <div class="row"><span>Ingresos servicios (efectivo):</span><span>$${resumen.totalServicios.toFixed(2)}</span></div>
-        <div class="row bold"><span>Total ingresos efectivo:</span><span>$${resumen.totalIngresos.toFixed(2)}</span></div>
+        <div class="row"><span>Ingresos (efectivo):</span><span>+$${resumen.totalIngresos.toFixed(2)}</span></div>
+        ${resumen.totalEgresos ? `
+          <div class="row egreso"><span>Egresos (retiros):</span><span>-$${resumen.totalEgresos.toFixed(2)}</span></div>
+        ` : ''}
+        <div class="row bold"><span>Saldo neto:</span><span>$${(resumen.saldoNeto || resumen.totalIngresos).toFixed(2)}</span></div>
         <div class="separator"></div>
+        
+        <!-- DESGLOSE DE DENOMINACIONES -->
+        ${denominaciones.length > 0 ? `
+          <div class="section-title"> DESGLOSE DE EFECTIVO</div>
+          ${billetes.length > 0 ? `
+            <div class="section-title billete"> BILLETES</div>
+            <table class="denom-table">
+              ${billetes.map(d => `
+                <tr>
+                  <td>$${d.denominacion.toFixed(2)}</td>
+                  <td>x ${d.cantidad}</td>
+                  <td>$${d.subtotal.toFixed(2)}</td>
+                </tr>
+              `).join('')}
+              <tr style="border-top: 1px dashed #000;">
+                <td colspan="2" class="bold">Total billetes:</td>
+                <td class="bold">$${totalBilletes.toFixed(2)}</td>
+              </tr>
+            </table>
+          ` : ''}
+          ${monedas.length > 0 ? `
+            <div class="section-title moneda"> MONEDAS</div>
+            <table class="denom-table">
+              ${monedas.map(d => `
+                <tr>
+                  <td>$${d.denominacion.toFixed(2)}</td>
+                  <td>x ${d.cantidad}</td>
+                  <td>$${d.subtotal.toFixed(2)}</td>
+                </tr>
+              `).join('')}
+              <tr style="border-top: 1px dashed #000;">
+                <td colspan="2" class="bold">Total monedas:</td>
+                <td class="bold">$${totalMonedas.toFixed(2)}</td>
+              </tr>
+            </table>
+          ` : ''}
+          <div class="separator"></div>
+        ` : ''}
+        
+        <!-- TOTALES FINALES -->
         <div class="row total"><span>Monto esperado:</span><span>$${resumen.montoEsperado.toFixed(2)}</span></div>
         <div class="row total"><span>Monto físico:</span><span>$${resumen.montoFisico.toFixed(2)}</span></div>
-        <div class="row bold ${resumen.diferencia >= 0 ? "diff-pos" : "diff-neg"}">
+        <div class="row bold ${resumen.diferencia >= 0 ? 'diff-pos' : 'diff-neg'}">
           <span>Diferencia:</span>
-          <span>${resumen.diferencia >= 0 ? "+" : ""}$${resumen.diferencia.toFixed(2)}</span>
+          <span>${resumen.diferencia >= 0 ? '+' : ''}$${resumen.diferencia.toFixed(2)}</span>
         </div>
         <div class="separator"></div>
-        <div style="font-size:9px;font-weight:bold;margin-bottom:2px">Movimientos del turno (${resumen.movimientos.length})</div>
-        <table>
-          <thead><tr>
-            <th>Hora</th>
-            <th>Tipo</th>
-            <th>Descripción</th>
-            <th>Monto</th>
-          </tr></thead>
+        
+        <!-- MOVIMIENTOS -->
+        <div style="font-size:9px;font-weight:bold;margin-bottom:2px">Movimientos (${Math.min(resumen.movimientos.length, 10)} de ${resumen.movimientos.length})</div>
+        <table style="width:100%; border-collapse: collapse; font-size: 8px;">
+          <thead>
+            <tr style="border-bottom: 1px solid #000;">
+              <th style="text-align:left;">Hora</th>
+              <th style="text-align:left;">Tipo</th>
+              <th style="text-align:left;">Descripción</th>
+              <th style="text-align:right;">Monto</th>
+            </tr>
+          </thead>
           <tbody>
-            ${resumen.movimientos.map((m) => {
-              // Determinar el texto del tipo y la clase CSS
-              let tipoTexto = ""
-              let claseCSS = ""
-              
-              if (m.tipo === "parqueo") {
-                if (m.metodo_pago === "tarjeta") {
-                  tipoTexto = "Parqueo (T)"
-                  claseCSS = "parqueo-tarjeta"
-                } else {
-                  tipoTexto = "Parqueo"
-                  claseCSS = "parqueo-efectivo"
-                }
-              } else if (m.tipo === "efectivo_manual") {
-                tipoTexto = "Manual"
-                claseCSS = "manual"
-              } else if (m.tipo === "servicio") {
-                if (m.metodo_pago === "tarjeta") {
-                  tipoTexto = "Servicio (T)"
-                  claseCSS = "servicio-tarjeta"
-                } else {
-                  tipoTexto = "Servicio"
-                  claseCSS = "servicio-efectivo"
-                }
-              }
-              
-              return `
+            ${resumen.movimientos.slice(0, 10).map(m => {
+      let tipoTexto = ""
+      let claseColor = ""
+
+      if (m.tipo === "egreso") {
+        tipoTexto = "Retiro"
+        claseColor = "egreso"
+      } else if (m.tipo === "parqueo") {
+        tipoTexto = m.metodo_pago === "tarjeta" ? "Pq(T)" : "Pq"
+      } else if (m.tipo === "efectivo_manual") {
+        tipoTexto = "Manual"
+      } else if (m.tipo === "servicio") {
+        tipoTexto = m.metodo_pago === "tarjeta" ? "Sv(T)" : "Sv"
+      }
+
+      const montoDisplay = m.tipo === "egreso" ? `-$${Math.abs(m.monto).toFixed(2)}` : `$${m.monto.toFixed(2)}`
+
+      return `
                 <tr>
                   <td>${new Date(m.fecha).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}</td>
-                  <td class="${claseCSS}">${tipoTexto}</td>
-                  <td>${m.descripcion.substring(0, 18)}</td>
-                  <td>$${m.monto.toFixed(2)}</td>
+                  <td class="${claseColor}">${tipoTexto}</td>
+                  <td>${m.descripcion.substring(0, 12)}</td>
+                  <td style="text-align:right;" class="${claseColor}">${montoDisplay}</td>
                 </tr>
               `
-            }).join("")}
+    }).join("")}
           </tbody>
         </table>
+        
         <div class="separator"></div>
         <div class="center" style="font-size:9px;margin-top:4px">
           <div>Generado: ${new Date().toLocaleString("es-EC")}</div>
+          <div class="bold">¡Gracias por su trabajo!</div>
         </div>
       </body></html>
     `)
@@ -502,50 +659,141 @@ function TicketCierreDialog({
           <DialogTitle>Resumen de cierre</DialogTitle>
           <DialogDescription>La caja ha sido cerrada exitosamente.</DialogDescription>
         </DialogHeader>
+
         <div className="font-mono text-sm space-y-3 border rounded-lg p-4 bg-background max-h-[60vh] overflow-y-auto">
+          {/* HEADER */}
           <div className="text-center border-b-2 border-dashed pb-3">
             <p className="text-lg font-bold">{HOTEL_INFO.nombre}</p>
             <p className="text-xs text-muted-foreground">{HOTEL_INFO.direccion}</p>
             <p className="text-xs text-muted-foreground">CIERRE DE CAJA</p>
             <p className="text-xs text-muted-foreground">{new Date(resumen.fechaCierre).toLocaleString("es-EC")}</p>
           </div>
+
+          {/* INFORMACIÓN GENERAL */}
           <div className="space-y-1">
-            <div className="flex justify-between text-sm"><span className="text-muted-foreground">Operador:</span><span className="font-medium">{resumen.operador}</span></div>
-            <div className="flex justify-between text-sm"><span className="text-muted-foreground">Monto inicial:</span><span>${resumen.montoInicial.toFixed(2)}</span></div>
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Parqueo (efectivo):</span>
-              <span className="text-blue-600">+${resumen.totalParqueo.toFixed(2)}</span>
+              <span className="text-muted-foreground">Operador:</span>
+              <span className="font-medium">{resumen.operador}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Servicios (efectivo):</span>
-              <span className="text-green-600">+${resumen.totalServicios.toFixed(2)}</span>
+              <span className="text-muted-foreground">Monto inicial:</span>
+              <span>${resumen.montoInicial.toFixed(2)}</span>
             </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Ingresos efectivo:</span>
+              <span className="text-green-600">+${resumen.totalIngresos.toFixed(2)}</span>
+            </div>
+            {resumen.totalEgresos ? (
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Egresos (retiros):</span>
+                <span className="text-red-600">-${resumen.totalEgresos.toFixed(2)}</span>
+              </div>
+            ) : null}
             <div className="flex justify-between text-sm font-semibold border-t border-dashed pt-1 mt-1">
-              <span>Total ingresos efectivo:</span>
-              <span>${resumen.totalIngresos.toFixed(2)}</span>
+              <span>Saldo neto:</span>
+              <span className="text-primary">${(resumen.saldoNeto || resumen.totalIngresos).toFixed(2)}</span>
             </div>
           </div>
+
+          {/* DESGLOSE DE DENOMINACIONES */}
+          {resumen.denominaciones && resumen.denominaciones.items.length > 0 && (
+            <div className="border-t border-dashed pt-2">
+              <p className="text-xs font-bold text-muted-foreground mb-2"> DESGLOSE DE EFECTIVO</p>
+
+              {/* Billetes */}
+              {resumen.denominaciones.items.filter(d => d.denominacion >= 1).length > 0 && (
+                <div className="mb-3">
+                  <p className="text-xs font-medium text-blue-600 mb-1"> Billetes:</p>
+                  <div className="space-y-1">
+                    {resumen.denominaciones.items
+                      .filter(d => d.denominacion >= 1)
+                      .sort((a, b) => b.denominacion - a.denominacion)
+                      .map((d, i) => (
+                        <div key={i} className="flex justify-between text-[11px]">
+                          <span className="text-muted-foreground">${d.denominacion.toFixed(2)} x {d.cantidad}</span>
+                          <span className="font-medium text-blue-600">${d.subtotal.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    <div className="flex justify-between text-xs font-semibold border-t border-dashed pt-1 mt-1">
+                      <span>Total billetes:</span>
+                      <span className="text-blue-600">
+                        ${resumen.denominaciones.items
+                          .filter(d => d.denominacion >= 1)
+                          .reduce((sum, d) => sum + d.subtotal, 0)
+                          .toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Monedas */}
+              {resumen.denominaciones.items.filter(d => d.denominacion < 1).length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-amber-600 mb-1"> Monedas:</p>
+                  <div className="space-y-1">
+                    {resumen.denominaciones.items
+                      .filter(d => d.denominacion < 1)
+                      .sort((a, b) => b.denominacion - a.denominacion)
+                      .map((d, i) => (
+                        <div key={i} className="flex justify-between text-[11px]">
+                          <span className="text-muted-foreground">${d.denominacion.toFixed(2)} x {d.cantidad}</span>
+                          <span className="font-medium text-amber-600">${d.subtotal.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    <div className="flex justify-between text-xs font-semibold border-t border-dashed pt-1 mt-1">
+                      <span>Total monedas:</span>
+                      <span className="text-amber-600">
+                        ${resumen.denominaciones.items
+                          .filter(d => d.denominacion < 1)
+                          .reduce((sum, d) => sum + d.subtotal, 0)
+                          .toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TOTALES FINALES */}
           <div className="border-t-2 border-dashed pt-2 space-y-1">
-            <div className="flex justify-between text-sm"><span className="text-muted-foreground">Monto esperado:</span><span className="font-bold">${resumen.montoEsperado.toFixed(2)}</span></div>
-            <div className="flex justify-between text-sm"><span className="text-muted-foreground">Monto físico:</span><span className="font-bold">${resumen.montoFisico.toFixed(2)}</span></div>
-            <div className={`flex justify-between text-base font-bold ${resumen.diferencia >= 0 ? "text-green-600" : "text-destructive"}`}>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Monto esperado:</span>
+              <span className="font-bold">${resumen.montoEsperado.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Monto físico:</span>
+              <span className="font-bold">${resumen.montoFisico.toFixed(2)}</span>
+            </div>
+            <div className={`flex justify-between text-base font-bold ${resumen.diferencia >= 0 ? 'text-green-600' : 'text-destructive'}`}>
               <span>Diferencia:</span>
-              <span>{resumen.diferencia >= 0 ? "+" : ""}${resumen.diferencia.toFixed(2)}</span>
+              <span>{resumen.diferencia >= 0 ? '+' : ''}{resumen.diferencia.toFixed(2)}</span>
             </div>
           </div>
+
+          {/* MOVIMIENTOS RECIENTES */}
           {resumen.movimientos.length > 0 && (
             <div className="border-t border-dashed pt-2">
-              <p className="text-xs font-bold text-muted-foreground mb-1">Movimientos ({resumen.movimientos.length})</p>
-              <div className="space-y-1 max-h-[200px] overflow-y-auto">
-                {resumen.movimientos.map((m) => {
-                  // Determinar el color del texto según el tipo
+              <p className="text-xs font-bold text-muted-foreground mb-2">
+                📋 Movimientos ({resumen.movimientos.length})
+              </p>
+              <div className="space-y-1.5 max-h-[150px] overflow-y-auto">
+                {resumen.movimientos.slice(0, 8).map((m) => {
                   let colorClass = ""
                   let tipoDisplay = ""
-                  
-                  if (m.tipo === "parqueo") {
+                  let montoDisplay = m.monto
+                  let signo = "+"
+
+                  if (m.tipo === "egreso") {
+                    colorClass = "text-red-600"
+                    tipoDisplay = "Retiro"
+                    montoDisplay = Math.abs(m.monto)
+                    signo = "-"
+                  } else if (m.tipo === "parqueo") {
                     if (m.metodo_pago === "tarjeta") {
                       colorClass = "text-gray-500"
-                      tipoDisplay = "Parqueo (T)"
+                      tipoDisplay = "Pq(T)"
                     } else {
                       colorClass = "text-blue-600"
                       tipoDisplay = "Parqueo"
@@ -556,36 +804,42 @@ function TicketCierreDialog({
                   } else if (m.tipo === "servicio") {
                     if (m.metodo_pago === "tarjeta") {
                       colorClass = "text-gray-500"
-                      tipoDisplay = "Servicio (T)"
+                      tipoDisplay = "Sv(T)"
                     } else {
                       colorClass = "text-green-600"
                       tipoDisplay = "Servicio"
                     }
                   }
-                  
+
                   return (
-                    <div key={m.id} className="flex justify-between text-xs">
-                      <span className="text-muted-foreground truncate max-w-[120px]">
+                    <div key={m.id} className="flex justify-between text-[11px]">
+                      <span className="text-muted-foreground w-12">
                         {new Date(m.fecha).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}
                       </span>
-                      <span className={`${colorClass} font-medium mx-1`}>
-                        {tipoDisplay}
+                      <span className={`${colorClass} w-14`}>{tipoDisplay}</span>
+                      <span className="text-muted-foreground truncate max-w-[100px]">
+                        {m.descripcion.substring(0, 12)}
                       </span>
-                      <span className="text-muted-foreground truncate max-w-[120px]">
-                        {m.descripcion.substring(0, 15)}
-                      </span>
-                      <span className={`font-medium shrink-0 ml-2 ${colorClass}`}>
-                        ${m.monto.toFixed(2)}
+                      <span className={`font-medium ${colorClass}`}>
+                        {signo}${montoDisplay.toFixed(2)}
                       </span>
                     </div>
                   )
                 })}
+                {resumen.movimientos.length > 8 && (
+                  <p className="text-[10px] text-muted-foreground text-center mt-1">
+                    ... y {resumen.movimientos.length - 8} movimientos más
+                  </p>
+                )}
               </div>
             </div>
           )}
         </div>
+
         <DialogFooter className="gap-2">
-          <Button variant="outline" className="bg-transparent" onClick={onClose}>Cerrar</Button>
+          <Button variant="outline" className="bg-transparent" onClick={onClose}>
+            Cerrar
+          </Button>
           <Button onClick={handleImprimir} className="gap-2">
             <Printer className="h-4 w-4" />
             Imprimir ticket
@@ -611,7 +865,6 @@ function CajaDialog({
   estadoCaja: any
   operador: string
   onRefresh: () => void
-  // ✅ recibe el resumen y cierra el dialog automáticamente
   onCajaCerrada: (resumen: CierreResumen) => void
 }) {
   const [movimientosData, setMovimientosData] = useState<MovimientosResponse | null>(null)
@@ -635,22 +888,20 @@ function CajaDialog({
 
   const movimientos = movimientosData?.movimientos ?? []
 
+
+const saldoDisponible = estadoCaja?.saldo_actual ?? 
+  ((estadoCaja?.caja_actual?.monto_inicial ?? 0) + 
+   (estadoCaja?.total_dia_total ?? 0) - 
+   (estadoCaja?.total_dia_egresos ?? 0))
+
   const handleCerrado = (resumen: CierreResumen) => {
-    // ✅ Cerrar dialog de caja primero
     onOpenChange(false)
-    
-    // ✅ Mostrar el ticket inmediatamente con el resumen capturado
     onCajaCerrada(resumen)
-    
-    // ✅ Refrescar el estado después de mostrar el ticket
-     //setTimeout(() => {
-        // onRefresh()
-     //}, 1000) // Esperar 1 segundo para que el usuario vea el ticket
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+      <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col">
         <DialogHeader>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -694,21 +945,45 @@ function CajaDialog({
         </div>
 
         {movimientosData && (
-          <div className="flex gap-2 shrink-0">
-            <div className="flex-1 rounded-lg border bg-card p-2 flex items-center gap-2">
-              <Banknote className="h-4 w-4 text-green-600 shrink-0" />
-              <div>
-                <p className="text-xs text-muted-foreground">Efectivo (entra a caja)</p>
-                <p className="text-sm font-bold text-green-600">${movimientosData.total_efectivo.toFixed(2)}</p>
+          <div className="flex flex-col gap-2 shrink-0">
+            <div className="flex gap-2">
+              <div className="flex-1 rounded-lg border bg-card p-2 flex items-center gap-2">
+                <Banknote className="h-4 w-4 text-green-600 shrink-0" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Ingresos efectivo</p>
+                  <p className="text-sm font-bold text-green-600">+${movimientosData.total_efectivo.toFixed(2)}</p>
+                </div>
+              </div>
+              <div className="flex-1 rounded-lg border bg-card p-2 flex items-center gap-2">
+                <CreditCard className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Tarjeta (no entra)</p>
+                  <p className="text-sm font-bold text-muted-foreground">${movimientosData.total_tarjeta.toFixed(2)}</p>
+                </div>
               </div>
             </div>
-            <div className="flex-1 rounded-lg border bg-card p-2 flex items-center gap-2">
-              <CreditCard className="h-4 w-4 text-muted-foreground shrink-0" />
-              <div>
-                <p className="text-xs text-muted-foreground">Tarjeta (no entra a caja)</p>
-                <p className="text-sm font-bold text-muted-foreground">${movimientosData.total_tarjeta.toFixed(2)}</p>
+
+            {/* EGRESOS Y SALDO NETO */}
+            {movimientosData.total_egresos > 0 && (
+              <div className="flex gap-2">
+                <div className="flex-1 rounded-lg border bg-card p-2 flex items-center gap-2">
+                  <Minus className="h-4 w-4 text-red-600 shrink-0" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Egresos (retiros)</p>
+                    <p className="text-sm font-bold text-red-600">-${movimientosData.total_egresos.toFixed(2)}</p>
+                  </div>
+                </div>
+                <div className="flex-1 rounded-lg border bg-card p-2 flex items-center gap-2">
+                  <Wallet className="h-4 w-4 text-primary shrink-0" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Saldo neto</p>
+                    <p className="text-sm font-bold text-primary">
+                      ${(movimientosData.saldo_neto || estadoCaja?.saldo_neto || estadoCaja?.monto_esperado || 0).toFixed(2)}
+                    </p>
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -734,30 +1009,41 @@ function CajaDialog({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {movimientos.map((mov) => (
-                  <TableRow key={mov.id}>
-                    <TableCell className="text-xs font-mono py-2">
-                      {new Date(mov.fecha).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}
-                    </TableCell>
-                    <TableCell className="py-2">{tipoBadge(mov.tipo, mov.metodo_pago)}</TableCell>
-                    <TableCell className="text-xs py-2 max-w-[200px] truncate">{mov.descripcion}</TableCell>
-                    <TableCell className="text-xs py-2 text-right font-medium text-green-600">
-                      +${mov.monto.toFixed(2)}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {movimientos.map((mov) => {
+                  const esEgreso = mov.tipo === "egreso"
+                  return (
+                    <TableRow key={mov.id}>
+                      <TableCell className="text-xs font-mono py-2">
+                        {new Date(mov.fecha).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}
+                      </TableCell>
+                      <TableCell className="py-2">{tipoBadge(mov.tipo, mov.metodo_pago)}</TableCell>
+                      <TableCell className="text-xs py-2 max-w-[200px] truncate">{mov.descripcion}</TableCell>
+                      <TableCell className={`text-xs py-2 text-right font-medium ${esEgreso ? 'text-red-600' : 'text-green-600'}`}>
+                        {esEgreso ? '-' : '+'}${Math.abs(mov.monto).toFixed(2)}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           )}
         </div>
 
         <DialogFooter className="flex-col sm:flex-row gap-2 shrink-0">
-          <AgregarEfectivoDialog
-            operador={operador}
-            onAgregado={() => { cargarMovimientos(); onRefresh() }}
-          />
+          <div className="flex gap-2 w-full sm:w-auto">
+            <AgregarEfectivoDialog
+              operador={operador}
+              onAgregado={() => { cargarMovimientos(); onRefresh() }}
+            />
+            {/* ✅ NUEVO: Botón de Retirar efectivo */}
+            <RetirarEfectivoDialog
+              operador={operador}
+              onEgresoRegistrado={() => { cargarMovimientos(); onRefresh() }}
+              saldoDisponible={saldoDisponible}
+            />
+          </div>
           <div className="flex gap-2 sm:ml-auto">
-            <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>Cerrar</Button>
+            
             <CierreCajaDialog
               estadoCaja={estadoCaja}
               operador={operador}
@@ -779,21 +1065,19 @@ export function Dashboard() {
   const [activeTab, setActiveTab] = useState("dashboard")
   const [cajaDialogOpen, setCajaDialogOpen] = useState(false)
   const [refrescando, setRefrescando] = useState(false)
-  // ✅ Ticket vive en el root del Dashboard — nunca se desmonta por otro dialog
   const [cierreResumen, setCierreResumen] = useState<CierreResumen | null>(null)
 
-const handleRefrescar = async () => {
+  const handleRefrescar = async () => {
     setRefrescando(true)
     try {
-        await refrescarEstado()
-        // Forzar un pequeño delay para asegurar que el backend haya procesado
-        await new Promise(resolve => setTimeout(resolve, 500))
+      await refrescarEstado()
+      await new Promise(resolve => setTimeout(resolve, 500))
     } catch (error) {
-        toast.error("Error al refrescar estado")
+      toast.error("Error al refrescar estado")
     } finally {
-        setRefrescando(false)
+      setRefrescando(false)
     }
-}
+  }
 
   return (
     <div className="min-h-screen bg-muted">
@@ -813,11 +1097,13 @@ const handleRefrescar = async () => {
                   <div className="flex flex-col items-end">
                     <span className="text-xs text-slate-300">Caja</span>
                     <span className="text-sm font-bold text-green-400">
-                      ${estadoCaja.monto_esperado.toFixed(2)}
+                      ${(estadoCaja.saldo_actual ?? estadoCaja.caja_actual?.monto_inicial ?? 0).toFixed(2)}
+                      {/* 👈 AHORA MUESTRA $180.00 */}
                     </span>
                   </div>
                   <Wallet className="h-5 w-5 text-green-400" />
                 </div>
+
                 <button
                   onClick={handleRefrescar}
                   className="p-1.5 rounded hover:bg-white/10 transition-colors"
@@ -906,8 +1192,7 @@ const handleRefrescar = async () => {
                     </div>
                   </CardContent>
                 </Card>
-                <Card
-                  className="border-amber-200 bg-amber-50/50 cursor-pointer hover:shadow-md transition-shadow"
+                <Card className="border-amber-200 bg-amber-50/50 cursor-pointer hover:shadow-md transition-shadow"
                   onClick={() => setCajaDialogOpen(true)}
                 >
                   <CardContent className="pt-6">
@@ -916,9 +1201,10 @@ const handleRefrescar = async () => {
                         <TrendingUp className="h-5 w-5 text-amber-600" />
                       </div>
                       <div>
-                        <p className="text-sm text-amber-700">Monto Esperado</p>
+                        <p className="text-sm text-amber-700">Saldo en caja</p>
                         <p className="text-2xl font-bold text-amber-600">
-                          ${estadoCaja.monto_esperado.toFixed(2)}
+                          ${(estadoCaja.saldo_actual ?? estadoCaja.caja_actual?.monto_inicial ?? 0).toFixed(2)}
+                          {/* 👈 AHORA MUESTRA $180.00 */}
                         </p>
                         <p className="text-xs text-amber-600/70 mt-0.5">Clic para ver detalle →</p>
                       </div>
@@ -951,7 +1237,6 @@ const handleRefrescar = async () => {
         onCajaCerrada={setCierreResumen}
       />
 
-      {/* ✅ Ticket montado en el root — aparece siempre después del cierre */}
       {cierreResumen && (
         <TicketCierreDialog
           resumen={cierreResumen}

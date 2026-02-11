@@ -33,18 +33,34 @@ export async function obtenerEstadoCaja() {
  * @param {string} operador 
  * @param {string} notas 
  */
-export async function abrirCaja(montoInicial, operador, notas = null) {
+
+// src/servicios/cajaService.js
+
+/**
+ * Abrir caja con monto inicial y denominaciones
+ * @param {number} montoInicial 
+ * @param {string} operador 
+ * @param {string} notas 
+ * @param {object} denominaciones - { items: [{denominacion, cantidad, subtotal}], total }
+ */
+export async function abrirCaja(montoInicial, operador, notas = null, denominaciones = null) {
   try {
+    const body = {
+      monto_inicial: montoInicial,
+      operador: operador,
+      notas: notas,
+    };
+    
+    if (denominaciones) {
+      body.denominaciones = denominaciones;
+    }
+
     const response = await fetch(`${CAJA_URL}/abrir`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        monto_inicial: montoInicial,
-        operador: operador,
-        notas: notas,
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -60,23 +76,30 @@ export async function abrirCaja(montoInicial, operador, notas = null) {
 }
 
 /**
- * Cerrar caja actual
+ * Cerrar caja actual con denominaciones
  * @param {number} montoFinal 
  * @param {string} operador 
  * @param {string} notas 
+ * @param {object} denominaciones - { items: [{denominacion, cantidad, subtotal}], total }
  */
-export async function cerrarCaja(montoFinal, operador = null, notas = null) {
+export async function cerrarCaja(montoFinal, operador = null, notas = null, denominaciones = null) {
   try {
+    const body = {
+      monto_final: montoFinal,
+      operador: operador,
+      notas: notas,
+    };
+    
+    if (denominaciones) {
+      body.denominaciones = denominaciones;
+    }
+
     const response = await fetch(`${CAJA_URL}/cerrar`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        monto_final: montoFinal,
-        operador: operador,
-        notas: notas,
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -90,10 +113,6 @@ export async function cerrarCaja(montoFinal, operador = null, notas = null) {
     throw error;
   }
 }
-
-/**
- * Obtener resumen de caja actual
- */
 export async function obtenerResumenCaja() {
   try {
     const response = await fetch(`${CAJA_URL}/resumen`, {
@@ -158,6 +177,38 @@ export async function agregarEfectivoCaja(monto, descripcion, operador) {
     return await response.json();
   } catch (error) {
     console.error("❌ Error en agregarEfectivoCaja:", error);
+    throw error;
+  }
+}
+
+// src/servicios/cajaService.js - Agregar
+
+/**
+ * Registrar egreso/retiro de efectivo
+ * @param {number} monto 
+ * @param {string} descripcion 
+ * @param {string} operador 
+ */
+export async function registrarEgresoCaja(monto, descripcion, operador) {
+  try {
+    const response = await fetch(`${CAJA_URL}/egreso`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        monto, 
+        descripcion, 
+        operador 
+      }),
+    });
+    
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.detail || "Error al registrar egreso");
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error("❌ Error en registrarEgresoCaja:", error);
     throw error;
   }
 }

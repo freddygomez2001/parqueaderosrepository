@@ -3,6 +3,8 @@ from sqlalchemy import Column, Integer, Numeric, DateTime, Text, Enum as SQLEnum
 from datetime import datetime
 from app.config import Base
 import enum
+from sqlalchemy.orm import relationship
+
 
 class EstadoCaja(enum.Enum):
     """Estados de la caja"""
@@ -40,10 +42,23 @@ class Caja(Base):
     # Notas
     notas_apertura = Column(Text, nullable=True)
     notas_cierre = Column(Text, nullable=True)
+
+    egresos = relationship("EgresoCaja", back_populates="caja", cascade="all, delete-orphan")
+
+    
+    # =========================================
+    # ✅ RELACIÓN CON DENOMINACIONES (Billetes y Monedas)
+    # =========================================
+    denominaciones = relationship(
+        "DenominacionCaja", 
+        back_populates="caja", 
+        cascade="all, delete-orphan",
+        lazy="selectin"  # Para carga eficiente
+    )
     
     def to_dict(self):
         """Convertir el modelo a diccionario"""
-        return {
+        base_dict = {
             'id': self.id,
             'monto_inicial': float(self.monto_inicial),
             'fecha_apertura': self.fecha_apertura.isoformat() if self.fecha_apertura else None,
@@ -58,5 +73,28 @@ class Caja(Base):
             'diferencia': float(self.diferencia) if self.diferencia else None,
             'estado': self.estado.value,
             'notas_apertura': self.notas_apertura,
-            'notas_cierre': self.notas_cierre
+            'notas_cierre': self.notas_cierre,
         }
+        
+        # ✅ Agregar denominaciones al diccionario si existen
+        if hasattr(self, 'denominaciones') and self.denominaciones:
+            denominaciones_apertura = [d.to_dict() for d in self.denominaciones if d.tipo == 'apertura']
+            denominaciones_cierre = [d.to_dict() for d in self.denominaciones if d.tipo == 'cierre']
+            
+            base_dict['denominaciones'] = {}
+            
+            if denominaciones_apertura:
+                base_dict['denominaciones']['apertura'] = denominaciones_apertura
+                # Calcular total de denominaciones de apertura
+                base_dict['total_denominaciones_apertura'] = sum(d['subtotal'] for d in denominaciones_apertura)
+            
+            if denominaciones_cierre:
+                base_dict['denominaciones']['cierre'] = denominaciones_cierre
+                # Calcular total de denominaciones de cierre
+                base_dict['total_denominaciones_cierre'] = sum(d['subtotal'] for d in denominaciones_cierre)
+
+            if hasattr(self, 'egresos') and self.egresos:
+                base_dict['egresos'] = [e.to_dict() for e in self.egresos]
+                base_dict['total_egresos'] = sum(float(e.monto) for e in self.egresos)
+        
+        return base_dict
