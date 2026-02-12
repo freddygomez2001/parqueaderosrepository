@@ -92,8 +92,8 @@ interface CierreResumen {
   totalParqueo: number
   totalServicios: number
   totalIngresos: number
-  totalEgresos?: number      // ✅ NUEVO
-  saldoNeto?: number         // ✅ NUEVO
+  totalEgresos?: number
+  saldoNeto?: number
   montoEsperado: number
   montoFisico: number
   diferencia: number
@@ -107,6 +107,14 @@ interface CierreResumen {
       subtotal: number
     }>
     total: number
+  }
+  // ✅ NUEVOS CAMPOS PARA DESGLOSE
+  desglose?: {
+    parqueo: { efectivo: number; tarjeta: number; total: number }
+    servicios: { efectivo: number; tarjeta: number; total: number }
+    hotel: { efectivo: number; tarjeta: number; total: number }
+    bano: { efectivo: number; tarjeta: number; total: number }
+    manuales: number
   }
 }
 
@@ -316,6 +324,44 @@ function CierreCajaDialog({
         modoCierre === "denominaciones" ? denominacionesData : undefined
       )
 
+      // ✅ CALCULAR DESGLOSE COMPLETO
+      const desglose = {
+        parqueo: { efectivo: 0, tarjeta: 0, total: 0 },
+        servicios: { efectivo: 0, tarjeta: 0, total: 0 },
+        hotel: { efectivo: 0, tarjeta: 0, total: 0 },
+        bano: { efectivo: 0, tarjeta: 0, total: 0 },
+        manuales: 0
+      }
+
+      movimientos.forEach(m => {
+        if (m.tipo === "parqueo") {
+          if (m.metodo_pago === "efectivo") desglose.parqueo.efectivo += m.monto
+          else if (m.metodo_pago === "tarjeta") desglose.parqueo.tarjeta += m.monto
+          desglose.parqueo.total += m.monto
+        }
+        else if (m.tipo === "servicio") {
+          // Servicios puede ser de productos, hotel o baño
+          if (m.descripcion.includes("Habitación") || m.descripcion.includes("hotel")) {
+            if (m.metodo_pago === "efectivo") desglose.hotel.efectivo += m.monto
+            else if (m.metodo_pago === "tarjeta") desglose.hotel.tarjeta += m.monto
+            desglose.hotel.total += m.monto
+          }
+          else if (m.descripcion.includes("Baño") || m.descripcion.includes("bano")) {
+            if (m.metodo_pago === "efectivo") desglose.bano.efectivo += m.monto
+            else if (m.metodo_pago === "tarjeta") desglose.bano.tarjeta += m.monto
+            desglose.bano.total += m.monto
+          }
+          else {
+            if (m.metodo_pago === "efectivo") desglose.servicios.efectivo += m.monto
+            else if (m.metodo_pago === "tarjeta") desglose.servicios.tarjeta += m.monto
+            desglose.servicios.total += m.monto
+          }
+        }
+        else if (m.tipo === "efectivo_manual") {
+          desglose.manuales += m.monto
+        }
+      })
+
       const resumen: CierreResumen = {
         montoInicial: estadoCaja?.caja_actual?.monto_inicial ?? 0,
         totalParqueo: estadoCaja?.total_dia_parqueo ?? 0,
@@ -329,7 +375,8 @@ function CierreCajaDialog({
         operador,
         fechaCierre: new Date().toISOString(),
         movimientos: [...movimientos],
-        denominaciones: modoCierre === "denominaciones" ? denominacionesData : undefined
+        denominaciones: modoCierre === "denominaciones" ? denominacionesData : undefined,
+        desglose // ✅ AGREGAR DESGLOSE
       }
 
       toast.success("Caja cerrada exitosamente", {
@@ -454,7 +501,7 @@ function CierreCajaDialog({
                 </p>
                 <p className="text-[10px] text-muted-foreground mt-0.5">
                   {diferencia === 0
-                    ? "✓ Cuadre perfecto"
+                    ? "✓ Arqueo perfecto"
                     : diferencia > 0
                       ? "Sobrante"
                       : "Faltante"}
@@ -487,6 +534,8 @@ function CierreCajaDialog({
 
 // ─── Ticket de cierre ─────────────────────────────────────────────────────────
 
+// ─── Ticket de cierre ─────────────────────────────────────────────────────────
+
 function TicketCierreDialog({
   resumen,
   onClose,
@@ -497,6 +546,14 @@ function TicketCierreDialog({
   const handleImprimir = () => {
     const printWindow = window.open("", "", "width=72mm,height=800")
     if (!printWindow) return
+
+    const d = resumen.desglose || {
+      parqueo: { efectivo: 0, tarjeta: 0, total: 0 },
+      servicios: { efectivo: 0, tarjeta: 0, total: 0 },
+      hotel: { efectivo: 0, tarjeta: 0, total: 0 },
+      bano: { efectivo: 0, tarjeta: 0, total: 0 },
+      manuales: 0
+    }
 
     const denominaciones = resumen.denominaciones?.items || []
     const billetes = denominaciones.filter(d => d.denominacion >= 1)
@@ -516,14 +573,14 @@ function TicketCierreDialog({
           .separator { border: none; border-top: 1px dashed #000; margin: 4px 0; }
           .row { display: flex; justify-content: space-between; margin: 2px 0; }
           .total { font-size: 14px; font-weight: bold; margin: 5px 0; }
-          .diff-pos { color: #000; } .diff-neg { color: #dc2626; }
+          .diff-pos { color: #16a34a; } .diff-neg { color: #dc2626; }
           .denom-table { width: 100%; border-collapse: collapse; margin: 3px 0; font-size: 9px; }
           .denom-table td { padding: 1px 0; }
           .denom-table td:last-child { text-align: right; }
           .section-title { font-size: 10px; font-weight: bold; margin-top: 5px; margin-bottom: 2px; }
-          .billete { color: #000; }
-          .moneda { color: #000; }
-          .egreso { color: #000; }
+          .efectivo { color: #000; }
+          .tarjeta { color: #6b7280; }
+          .sub-row { margin-left: 8px; font-size: 9px; }
         </style>
       </head><body>
         <!-- HEADER -->
@@ -541,20 +598,56 @@ function TicketCierreDialog({
         <div class="row"><span>Operador:</span><span>${resumen.operador}</span></div>
         <div class="separator"></div>
         
+        <!-- ========== DESGLOSE COMPLETO ========== -->
+        <div class="section-title"> DESGLOSE DE INGRESOS</div>
+        
+        <!-- PARQUEO -->
+        <div class="row bold"><span>PARQUEO:</span><span>$${d.parqueo.total.toFixed(2)}</span></div>
+        <div class="row sub-row efectivo"><span>  • Efectivo:</span><span>+$${d.parqueo.efectivo.toFixed(2)}</span></div>
+        <div class="row sub-row tarjeta"><span>  • Tarjeta:</span><span>$${d.parqueo.tarjeta.toFixed(2)}</span></div>
+        
+        <!-- SERVICIOS (Productos) -->
+        <div class="row bold"><span>SERVICIOS:</span><span>$${d.servicios.total.toFixed(2)}</span></div>
+        <div class="row sub-row efectivo"><span>  • Efectivo:</span><span>+$${d.servicios.efectivo.toFixed(2)}</span></div>
+        <div class="row sub-row tarjeta"><span>  • Tarjeta:</span><span>$${d.servicios.tarjeta.toFixed(2)}</span></div>
+        
+        <!-- HOTEL -->
+        ${d.hotel.total > 0 ? `
+          <div class="row bold"><span>HOTEL:</span><span>$${d.hotel.total.toFixed(2)}</span></div>
+          <div class="row sub-row efectivo"><span>  • Efectivo:</span><span>+$${d.hotel.efectivo.toFixed(2)}</span></div>
+          <div class="row sub-row tarjeta"><span>  • Tarjeta:</span><span>$${d.hotel.tarjeta.toFixed(2)}</span></div>
+        ` : ''}
+        
+        <!-- BAÑO -->
+        ${d.bano.total > 0 ? `
+          <div class="row bold"><span>BAÑO:</span><span>$${d.bano.total.toFixed(2)}</span></div>
+          <div class="row sub-row efectivo"><span>  • Efectivo:</span><span>+$${d.bano.efectivo.toFixed(2)}</span></div>
+          <div class="row sub-row tarjeta"><span>  • Tarjeta:</span><span>$${d.bano.tarjeta.toFixed(2)}</span></div>
+        ` : ''}
+        
+        <!-- MANUALES -->
+        ${d.manuales > 0 ? `
+          <div class="row bold"><span>MANUALES:</span><span>+$${d.manuales.toFixed(2)}</span></div>
+        ` : ''}
+        
+        <!-- EGRESOS -->
+        ${resumen.totalEgresos ? `
+          <div class="row bold" style="color: #dc2626;"><span>EGRESOS (RETIROS):</span><span>-$${resumen.totalEgresos.toFixed(2)}</span></div>
+        ` : ''}
+        
+        <div class="separator"></div>
+        
         <!-- RESUMEN DE CAJA -->
         <div class="row"><span>Monto inicial:</span><span>$${resumen.montoInicial.toFixed(2)}</span></div>
-        <div class="row"><span>Ingresos (efectivo):</span><span>+$${resumen.totalIngresos.toFixed(2)}</span></div>
-        ${resumen.totalEgresos ? `
-          <div class="row egreso"><span>Egresos (retiros):</span><span>-$${resumen.totalEgresos.toFixed(2)}</span></div>
-        ` : ''}
-        <div class="row bold"><span>Saldo neto:</span><span>$${(resumen.saldoNeto || resumen.totalIngresos).toFixed(2)}</span></div>
+        <div class="row"><span>Total ingresos efectivo:</span><span>+$${resumen.totalIngresos.toFixed(2)}</span></div>
+        <div class="row bold"><span>SALDO NETO:</span><span>$${resumen.saldoNeto?.toFixed(2) || resumen.totalIngresos.toFixed(2)}</span></div>
         <div class="separator"></div>
         
         <!-- DESGLOSE DE DENOMINACIONES -->
         ${denominaciones.length > 0 ? `
-          <div class="section-title"> DESGLOSE DE EFECTIVO</div>
+          <div class="section-title"> DESGLOSE DE EFECTIVO FÍSICO</div>
           ${billetes.length > 0 ? `
-            <div class="section-title billete"> BILLETES</div>
+            <div class="section-title"> BILLETES</div>
             <table class="denom-table">
               ${billetes.map(d => `
                 <tr>
@@ -570,7 +663,7 @@ function TicketCierreDialog({
             </table>
           ` : ''}
           ${monedas.length > 0 ? `
-            <div class="section-title moneda"> MONEDAS</div>
+            <div class="section-title"> MONEDAS</div>
             <table class="denom-table">
               ${monedas.map(d => `
                 <tr>
@@ -589,16 +682,16 @@ function TicketCierreDialog({
         ` : ''}
         
         <!-- TOTALES FINALES -->
-        <div class="row total"><span>Monto esperado:</span><span>$${resumen.montoEsperado.toFixed(2)}</span></div>
-        <div class="row total"><span>Monto físico:</span><span>$${resumen.montoFisico.toFixed(2)}</span></div>
+        <div class="row total"><span>MONTO ESPERADO:</span><span>$${resumen.montoEsperado.toFixed(2)}</span></div>
+        <div class="row total"><span>MONTO FÍSICO:</span><span>$${resumen.montoFisico.toFixed(2)}</span></div>
         <div class="row bold ${resumen.diferencia >= 0 ? 'diff-pos' : 'diff-neg'}">
-          <span>Diferencia:</span>
+          <span>DIFERENCIA:</span>
           <span>${resumen.diferencia >= 0 ? '+' : ''}$${resumen.diferencia.toFixed(2)}</span>
         </div>
         <div class="separator"></div>
         
-        <!-- MOVIMIENTOS -->
-        <div style="font-size:9px;font-weight:bold;margin-bottom:2px">Movimientos (${Math.min(resumen.movimientos.length, 10)} de ${resumen.movimientos.length})</div>
+        <!-- MOVIMIENTOS (solo últimos 10) -->
+        <div style="font-size:9px;font-weight:bold;margin-bottom:2px">📋 MOVIMIENTOS (últimos 10 de ${resumen.movimientos.length})</div>
         <table style="width:100%; border-collapse: collapse; font-size: 8px;">
           <thead>
             <tr style="border-bottom: 1px solid #000;">
@@ -610,31 +703,25 @@ function TicketCierreDialog({
           </thead>
           <tbody>
             ${resumen.movimientos.slice(0, 10).map(m => {
-      let tipoTexto = ""
-      let claseColor = ""
-
-      if (m.tipo === "egreso") {
-        tipoTexto = "Retiro"
-        claseColor = "egreso"
-      } else if (m.tipo === "parqueo") {
-        tipoTexto = m.metodo_pago === "tarjeta" ? "Pq(T)" : "Pq"
-      } else if (m.tipo === "efectivo_manual") {
-        tipoTexto = "Manual"
-      } else if (m.tipo === "servicio") {
-        tipoTexto = m.metodo_pago === "tarjeta" ? "Sv(T)" : "Sv"
-      }
-
-      const montoDisplay = m.tipo === "egreso" ? `-$${Math.abs(m.monto).toFixed(2)}` : `$${m.monto.toFixed(2)}`
-
-      return `
+              let tipoTexto = ""
+              if (m.tipo === "egreso") tipoTexto = "Retiro"
+              else if (m.tipo === "parqueo") tipoTexto = m.metodo_pago === "tarjeta" ? "Pq(T)" : "Pq"
+              else if (m.tipo === "efectivo_manual") tipoTexto = "Manual"
+              else if (m.tipo === "servicio") tipoTexto = m.metodo_pago === "tarjeta" ? "Sv(T)" : "Sv"
+              
+              const montoDisplay = m.tipo === "egreso" 
+                ? `-$${Math.abs(m.monto).toFixed(2)}` 
+                : `$${m.monto.toFixed(2)}`
+              
+              return `
                 <tr>
                   <td>${new Date(m.fecha).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}</td>
-                  <td class="${claseColor}">${tipoTexto}</td>
+                  <td>${tipoTexto}</td>
                   <td>${m.descripcion.substring(0, 12)}</td>
-                  <td style="text-align:right;" class="${claseColor}">${montoDisplay}</td>
+                  <td style="text-align:right;">${montoDisplay}</td>
                 </tr>
               `
-    }).join("")}
+            }).join("")}
           </tbody>
         </table>
         
@@ -660,6 +747,7 @@ function TicketCierreDialog({
           <DialogDescription>La caja ha sido cerrada exitosamente.</DialogDescription>
         </DialogHeader>
 
+        {/* Vista previa del ticket */}
         <div className="font-mono text-sm space-y-3 border rounded-lg p-4 bg-background max-h-[60vh] overflow-y-auto">
           {/* HEADER */}
           <div className="text-center border-b-2 border-dashed pb-3">
@@ -679,85 +767,196 @@ function TicketCierreDialog({
               <span className="text-muted-foreground">Monto inicial:</span>
               <span>${resumen.montoInicial.toFixed(2)}</span>
             </div>
+          </div>
+
+          <div className="border-t border-dashed my-2"></div>
+
+          {/* ========== DESGLOSE DE INGRESOS ========== */}
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-muted-foreground"> DESGLOSE DE INGRESOS</p>
+            
+            {/* PARQUEO */}
+            {(resumen.desglose?.parqueo.total || 0) > 0 && (
+              <div className="space-y-0.5">
+                <div className="flex justify-between text-sm font-semibold">
+                  <span>PARQUEO:</span>
+                  <span>${(resumen.desglose?.parqueo.total || 0).toFixed(2)}</span>
+                </div>
+                {(resumen.desglose?.parqueo.efectivo || 0) > 0 && (
+                  <div className="flex justify-between text-xs pl-2 text-muted-foreground">
+                    <span>  • Efectivo:</span>
+                    <span className="text-green-600">+${(resumen.desglose?.parqueo.efectivo || 0).toFixed(2)}</span>
+                  </div>
+                )}
+                {(resumen.desglose?.parqueo.tarjeta || 0) > 0 && (
+                  <div className="flex justify-between text-xs pl-2 text-muted-foreground">
+                    <span>  • Tarjeta:</span>
+                    <span className="text-gray-500">${(resumen.desglose?.parqueo.tarjeta || 0).toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* SERVICIOS */}
+            {(resumen.desglose?.servicios.total || 0) > 0 && (
+              <div className="space-y-0.5">
+                <div className="flex justify-between text-sm font-semibold">
+                  <span>SERVICIOS:</span>
+                  <span>${(resumen.desglose?.servicios.total || 0).toFixed(2)}</span>
+                </div>
+                {(resumen.desglose?.servicios.efectivo || 0) > 0 && (
+                  <div className="flex justify-between text-xs pl-2 text-muted-foreground">
+                    <span>  • Efectivo:</span>
+                    <span className="text-green-600">+${(resumen.desglose?.servicios.efectivo || 0).toFixed(2)}</span>
+                  </div>
+                )}
+                {(resumen.desglose?.servicios.tarjeta || 0) > 0 && (
+                  <div className="flex justify-between text-xs pl-2 text-muted-foreground">
+                    <span>  • Tarjeta:</span>
+                    <span className="text-gray-500">${(resumen.desglose?.servicios.tarjeta || 0).toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* HOTEL */}
+            {(resumen.desglose?.hotel.total || 0) > 0 && (
+              <div className="space-y-0.5">
+                <div className="flex justify-between text-sm font-semibold">
+                  <span>HOTEL:</span>
+                  <span>${(resumen.desglose?.hotel.total || 0).toFixed(2)}</span>
+                </div>
+                {(resumen.desglose?.hotel.efectivo || 0) > 0 && (
+                  <div className="flex justify-between text-xs pl-2 text-muted-foreground">
+                    <span>  • Efectivo:</span>
+                    <span className="text-green-600">+${(resumen.desglose?.hotel.efectivo || 0).toFixed(2)}</span>
+                  </div>
+                )}
+                {(resumen.desglose?.hotel.tarjeta || 0) > 0 && (
+                  <div className="flex justify-between text-xs pl-2 text-muted-foreground">
+                    <span>  • Tarjeta:</span>
+                    <span className="text-gray-500">${(resumen.desglose?.hotel.tarjeta || 0).toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* BAÑO */}
+            {(resumen.desglose?.bano.total || 0) > 0 && (
+              <div className="space-y-0.5">
+                <div className="flex justify-between text-sm font-semibold">
+                  <span>BAÑO:</span>
+                  <span>${(resumen.desglose?.bano.total || 0).toFixed(2)}</span>
+                </div>
+                {(resumen.desglose?.bano.efectivo || 0) > 0 && (
+                  <div className="flex justify-between text-xs pl-2 text-muted-foreground">
+                    <span>  • Efectivo:</span>
+                    <span className="text-green-600">+${(resumen.desglose?.bano.efectivo || 0).toFixed(2)}</span>
+                  </div>
+                )}
+                {(resumen.desglose?.bano.tarjeta || 0) > 0 && (
+                  <div className="flex justify-between text-xs pl-2 text-muted-foreground">
+                    <span>  • Tarjeta:</span>
+                    <span className="text-gray-500">${(resumen.desglose?.bano.tarjeta || 0).toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* MANUALES */}
+            {(resumen.desglose?.manuales || 0) > 0 && (
+              <div className="flex justify-between text-sm font-semibold">
+                <span>MANUALES:</span>
+                <span className="text-amber-600">+${(resumen.desglose?.manuales || 0).toFixed(2)}</span>
+              </div>
+            )}
+
+            {/* EGRESOS */}
+            {(resumen.totalEgresos || 0) > 0 && (
+              <div className="flex justify-between text-sm font-semibold">
+                <span>EGRESOS (RETIROS):</span>
+                <span className="text-red-600">-${(resumen.totalEgresos || 0).toFixed(2)}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-dashed my-2"></div>
+
+          {/* RESUMEN DE CAJA */}
+          <div className="space-y-1">
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Ingresos efectivo:</span>
+              <span className="text-muted-foreground">Total ingresos efectivo:</span>
               <span className="text-green-600">+${resumen.totalIngresos.toFixed(2)}</span>
             </div>
-            {resumen.totalEgresos ? (
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Egresos (retiros):</span>
-                <span className="text-red-600">-${resumen.totalEgresos.toFixed(2)}</span>
-              </div>
-            ) : null}
-            <div className="flex justify-between text-sm font-semibold border-t border-dashed pt-1 mt-1">
-              <span>Saldo neto:</span>
+            <div className="flex justify-between text-sm font-bold">
+              <span>SALDO NETO:</span>
               <span className="text-primary">${(resumen.saldoNeto || resumen.totalIngresos).toFixed(2)}</span>
             </div>
           </div>
 
+          <div className="border-t border-dashed my-2"></div>
+
           {/* DESGLOSE DE DENOMINACIONES */}
           {resumen.denominaciones && resumen.denominaciones.items.length > 0 && (
-            <div className="border-t border-dashed pt-2">
-              <p className="text-xs font-bold text-muted-foreground mb-2"> DESGLOSE DE EFECTIVO</p>
-
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-muted-foreground"> DESGLOSE DE EFECTIVO FÍSICO</p>
+              
               {/* Billetes */}
               {resumen.denominaciones.items.filter(d => d.denominacion >= 1).length > 0 && (
-                <div className="mb-3">
-                  <p className="text-xs font-medium text-blue-600 mb-1"> Billetes:</p>
-                  <div className="space-y-1">
-                    {resumen.denominaciones.items
-                      .filter(d => d.denominacion >= 1)
-                      .sort((a, b) => b.denominacion - a.denominacion)
-                      .map((d, i) => (
-                        <div key={i} className="flex justify-between text-[11px]">
-                          <span className="text-muted-foreground">${d.denominacion.toFixed(2)} x {d.cantidad}</span>
-                          <span className="font-medium text-blue-600">${d.subtotal.toFixed(2)}</span>
-                        </div>
-                      ))}
-                    <div className="flex justify-between text-xs font-semibold border-t border-dashed pt-1 mt-1">
-                      <span>Total billetes:</span>
-                      <span className="text-blue-600">
-                        ${resumen.denominaciones.items
-                          .filter(d => d.denominacion >= 1)
-                          .reduce((sum, d) => sum + d.subtotal, 0)
-                          .toFixed(2)}
-                      </span>
-                    </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-blue-600"> Billetes:</p>
+                  {resumen.denominaciones.items
+                    .filter(d => d.denominacion >= 1)
+                    .sort((a, b) => b.denominacion - a.denominacion)
+                    .map((d, i) => (
+                      <div key={i} className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">${d.denominacion.toFixed(2)} x {d.cantidad}</span>
+                        <span className="font-medium">${d.subtotal.toFixed(2)}</span>
+                      </div>
+                    ))}
+                  <div className="flex justify-between text-xs font-semibold border-t border-dashed pt-1 mt-1">
+                    <span>Total billetes:</span>
+                    <span className="text-blue-600">
+                      ${resumen.denominaciones.items
+                        .filter(d => d.denominacion >= 1)
+                        .reduce((sum, d) => sum + d.subtotal, 0)
+                        .toFixed(2)}
+                    </span>
                   </div>
                 </div>
               )}
 
               {/* Monedas */}
               {resumen.denominaciones.items.filter(d => d.denominacion < 1).length > 0 && (
-                <div>
-                  <p className="text-xs font-medium text-amber-600 mb-1"> Monedas:</p>
-                  <div className="space-y-1">
-                    {resumen.denominaciones.items
-                      .filter(d => d.denominacion < 1)
-                      .sort((a, b) => b.denominacion - a.denominacion)
-                      .map((d, i) => (
-                        <div key={i} className="flex justify-between text-[11px]">
-                          <span className="text-muted-foreground">${d.denominacion.toFixed(2)} x {d.cantidad}</span>
-                          <span className="font-medium text-amber-600">${d.subtotal.toFixed(2)}</span>
-                        </div>
-                      ))}
-                    <div className="flex justify-between text-xs font-semibold border-t border-dashed pt-1 mt-1">
-                      <span>Total monedas:</span>
-                      <span className="text-amber-600">
-                        ${resumen.denominaciones.items
-                          .filter(d => d.denominacion < 1)
-                          .reduce((sum, d) => sum + d.subtotal, 0)
-                          .toFixed(2)}
-                      </span>
-                    </div>
+                <div className="space-y-1 mt-2">
+                  <p className="text-xs font-medium text-amber-600"> Monedas:</p>
+                  {resumen.denominaciones.items
+                    .filter(d => d.denominacion < 1)
+                    .sort((a, b) => b.denominacion - a.denominacion)
+                    .map((d, i) => (
+                      <div key={i} className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">${d.denominacion.toFixed(2)} x {d.cantidad}</span>
+                        <span className="font-medium">${d.subtotal.toFixed(2)}</span>
+                      </div>
+                    ))}
+                  <div className="flex justify-between text-xs font-semibold border-t border-dashed pt-1 mt-1">
+                    <span>Total monedas:</span>
+                    <span className="text-amber-600">
+                      ${resumen.denominaciones.items
+                        .filter(d => d.denominacion < 1)
+                        .reduce((sum, d) => sum + d.subtotal, 0)
+                        .toFixed(2)}
+                    </span>
                   </div>
                 </div>
               )}
             </div>
           )}
 
+          <div className="border-t-2 border-dashed my-2"></div>
+
           {/* TOTALES FINALES */}
-          <div className="border-t-2 border-dashed pt-2 space-y-1">
+          <div className="space-y-1">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Monto esperado:</span>
               <span className="font-bold">${resumen.montoEsperado.toFixed(2)}</span>
@@ -812,7 +1011,7 @@ function TicketCierreDialog({
                   }
 
                   return (
-                    <div key={m.id} className="flex justify-between text-[11px]">
+                    <div key={m.id} className="flex justify-between text-xs">
                       <span className="text-muted-foreground w-12">
                         {new Date(m.fecha).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}
                       </span>
@@ -889,10 +1088,10 @@ function CajaDialog({
   const movimientos = movimientosData?.movimientos ?? []
 
 
-const saldoDisponible = estadoCaja?.saldo_actual ?? 
-  ((estadoCaja?.caja_actual?.monto_inicial ?? 0) + 
-   (estadoCaja?.total_dia_total ?? 0) - 
-   (estadoCaja?.total_dia_egresos ?? 0))
+  const saldoDisponible = estadoCaja?.saldo_actual ??
+    ((estadoCaja?.caja_actual?.monto_inicial ?? 0) +
+      (estadoCaja?.total_dia_total ?? 0) -
+      (estadoCaja?.total_dia_egresos ?? 0))
 
   const handleCerrado = (resumen: CierreResumen) => {
     onOpenChange(false)
@@ -909,7 +1108,7 @@ const saldoDisponible = estadoCaja?.saldo_actual ??
                 <Vault className="h-4 w-4 text-primary" />
               </div>
               <div>
-                <DialogTitle>Estado de Caja</DialogTitle>
+                <DialogTitle>Arqueo de Caja</DialogTitle>
                 <DialogDescription className="text-xs">
                   Turno de {operador} — {new Date().toLocaleDateString("es-EC")}
                 </DialogDescription>
@@ -1043,7 +1242,7 @@ const saldoDisponible = estadoCaja?.saldo_actual ??
             />
           </div>
           <div className="flex gap-2 sm:ml-auto">
-            
+
             <CierreCajaDialog
               estadoCaja={estadoCaja}
               operador={operador}
