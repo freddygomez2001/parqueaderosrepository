@@ -66,165 +66,6 @@ const HOTEL_INFO = {
 // ✅ CONTRASEÑA DE ADMINISTRADOR
 const PASSWORD_ADMIN = "admin2024"
 
-// ─── Dialog: Pago con efectivo y cálculo de vuelto ────────────────────────
-function PagoEfectivoDialog({
-  total,
-  onConfirmar,
-  onCancelar,
-  open,
-  onOpenChange
-}: {
-  total: number
-  onConfirmar: (montoRecibido: number) => void
-  onCancelar: () => void
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const [montoRecibido, setMontoRecibido] = useState("")
-  const [error, setError] = useState("")
-
-  const montoRecibidoNum = parseFloat(montoRecibido) || 0
-  const vuelto = montoRecibidoNum - total
-  const esSuficiente = montoRecibidoNum >= total
-
-  const handleConfirmar = () => {
-    if (!montoRecibido) {
-      setError("Ingrese el monto recibido")
-      return
-    }
-    if (montoRecibidoNum < total) {
-      setError(`El monto es insuficiente. Faltan $${(total - montoRecibidoNum).toFixed(2)}`)
-      return
-    }
-    onConfirmar(montoRecibidoNum)
-    setMontoRecibido("")
-    setError("")
-    onOpenChange(false)
-  }
-
-  // Reset cuando se abre el diálogo
-  useEffect(() => {
-    if (open) {
-      setMontoRecibido("")
-      setError("")
-    }
-  }, [open])
-
-  // Sugerencias rápidas
-  const sugerencias = [
-    total,
-    Math.ceil(total),
-    Math.ceil(total / 5) * 5,
-    Math.ceil(total / 10) * 10,
-  ].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b)
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500/10">
-              <Banknote className="h-4 w-4 text-green-600" />
-            </div>
-            <DialogTitle>Pago en efectivo</DialogTitle>
-          </div>
-          <DialogDescription>
-            Ingresa el monto con el que paga el cliente
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
-          {/* Total a cobrar */}
-          <div className="rounded-lg bg-primary/10 p-4 text-center">
-            <p className="text-xs text-muted-foreground mb-1">Total a cobrar</p>
-            <p className="text-3xl font-bold text-primary">${total.toFixed(2)}</p>
-          </div>
-
-          {/* Monto recibido */}
-          <div className="grid gap-2">
-            <Label htmlFor="monto-recibido">Monto recibido ($)</Label>
-            <div className="relative">
-              <DollarSign className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id="monto-recibido"
-                type="number"
-                step="0.01"
-                min="0"
-                placeholder="0.00"
-                value={montoRecibido}
-                onChange={(e) => {
-                  setMontoRecibido(e.target.value)
-                  setError("")
-                }}
-                className="pl-10 text-2xl h-14 font-mono"
-                autoFocus
-              />
-            </div>
-            {error && (
-              <p className="text-sm text-destructive">{error}</p>
-            )}
-          </div>
-
-          {/* Botones de sugerencias */}
-          <div className="flex flex-wrap gap-2">
-            {sugerencias.map((sug) => (
-              <Button
-                key={sug}
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setMontoRecibido(sug.toFixed(2))
-                  setError("")
-                }}
-                className="bg-transparent"
-              >
-                ${sug.toFixed(2)}
-              </Button>
-            ))}
-          </div>
-
-          {/* Vuelto a devolver */}
-          {montoRecibido && (
-            <div className={`rounded-lg p-4 text-center ${esSuficiente ? 'bg-green-500/10' : 'bg-destructive/10'}`}>
-              <p className="text-xs text-muted-foreground mb-1">
-                {esSuficiente ? 'Vuelto a devolver' : 'Monto insuficiente'}
-              </p>
-              <p className={`text-2xl font-bold ${esSuficiente ? 'text-green-600' : 'text-destructive'}`}>
-                {esSuficiente
-                  ? `$${vuelto.toFixed(2)}`
-                  : `Faltan $${(total - montoRecibidoNum).toFixed(2)}`
-                }
-              </p>
-            </div>
-          )}
-        </div>
-
-        <DialogFooter className="gap-2">
-          <Button
-            variant="ghost"
-            onClick={() => {
-              onCancelar()
-              onOpenChange(false)
-              setMontoRecibido("")
-              setError("")
-            }}
-          >
-            Cancelar
-          </Button>
-          <Button
-            onClick={handleConfirmar}
-            disabled={!esSuficiente || !montoRecibido}
-            className="gap-2 bg-green-600 hover:bg-green-700"
-          >
-            <CheckCircle className="h-4 w-4" />
-            Confirmar pago
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 export function VehicleExit() {
   const { mutate } = useSWRConfig()
   const { refrescarEstado } = useCaja()
@@ -238,8 +79,7 @@ export function VehicleExit() {
   const [indicadorVisible, setIndicadorVisible] = useState(false)
   const [noPagado, setNoPagado] = useState(false)
 
-  // ✅ Estados para pago en efectivo
-  const [pagoDialogOpen, setPagoDialogOpen] = useState(false)
+  // ✅ Estado para método de pago
   const [metodoPago, setMetodoPago] = useState<"efectivo" | "tarjeta">("efectivo")
 
   // ✅ Estados para contraseña de administrador
@@ -414,20 +254,17 @@ export function VehicleExit() {
     }
   }
 
-  // ✅ Función para registrar salida con EFECTIVO (sí suma a caja)
-  const procesarSalidaEfectivo = async (montoRecibido: number) => {
+  // ✅ Función para registrar salida con EFECTIVO (SIN DIÁLOGO)
+  const procesarSalidaEfectivo = async () => {
     if (!vehiculo) return
 
     setProcessing(true)
     setError("")
 
     try {
-      // 👈 PASAR metodo_pago = "efectivo"
       const result = await registrarSalida(vehiculo.placa, false, "efectivo")
 
       if (result.ok && result.data) {
-        const vuelto = montoRecibido - vehiculo.costo_estimado
-
         setFactura(result.data.factura)
         setDialogOpen(true)
         setVehiculo(null)
@@ -439,7 +276,7 @@ export function VehicleExit() {
         await refrescarEstado()
 
         toast.success("Salida registrada exitosamente", {
-          description: vuelto > 0 ? `Vuelto: $${vuelto.toFixed(2)}` : "Pago exacto",
+          description: `Pago en efectivo procesado - $${vehiculo.costo_estimado.toFixed(2)}`,
         })
       } else {
         setError(result.message || "Error al registrar salida")
@@ -459,7 +296,6 @@ export function VehicleExit() {
     setError("")
 
     try {
-      // 👈 PASAR metodo_pago = "tarjeta"
       const result = await registrarSalida(vehiculo.placa, false, "tarjeta")
 
       if (result.ok && result.data) {
@@ -484,13 +320,6 @@ export function VehicleExit() {
     } finally {
       setProcessing(false)
     }
-  }
-
-  // ✅ Función para registrar salida normal (por defecto, usa efectivo con diálogo)
-  const handleRegistrarSalidaNormal = () => {
-    if (!vehiculo) return
-    setMetodoPago("efectivo")
-    setPagoDialogOpen(true)
   }
 
   // ✅ Función para solicitar registrar como NO PAGADO (con contraseña)
@@ -564,7 +393,6 @@ export function VehicleExit() {
     setError("")
 
     try {
-      // 👈 PASAR es_no_pagado = true, metodo_pago no aplica
       const result = await registrarSalida(vehiculo.placa, true)
 
       if (result.ok && result.data) {
@@ -591,26 +419,35 @@ export function VehicleExit() {
       setProcessing(false)
     }
   }
-  // ✅ Selector de método de pago
+
+  // ✅ Selector de método de pago MEJORADO (más grande y visible)
   const MetodoPagoSelector = () => {
     return (
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-medium text-muted-foreground">Pago:</span>
-        <div className="flex rounded-lg border bg-muted/30 p-1">
-          {(["efectivo", "tarjeta"] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => setMetodoPago(m)}
-              className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-all ${metodoPago === m
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-                }`}
-            >
-              {m === "efectivo" ? <Banknote className="h-4 w-4" /> : <CreditCard className="h-4 w-4" />}
-              {m === "efectivo" ? "Efectivo" : "Tarjeta"}
-            </button>
-          ))}
+      <div className="space-y-2 w-full">
+        <Label className="text-sm font-medium">Método de pago</Label>
+        <div className="grid grid-cols-2 gap-3">
+          <Button
+            variant={metodoPago === "efectivo" ? "default" : "outline"}
+            className={`h-12 text-base gap-2 w-full ${metodoPago === "efectivo" ? "bg-green-600 hover:bg-green-700" : "border-2"}`}
+            onClick={() => setMetodoPago("efectivo")}
+          >
+            <Banknote className="h-5 w-5" />
+            Efectivo
+          </Button>
+          <Button
+            variant={metodoPago === "tarjeta" ? "default" : "outline"}
+            className={`h-12 text-base gap-2 w-full ${metodoPago === "tarjeta" ? "bg-blue-600 hover:bg-blue-700" : "border-2"}`}
+            onClick={() => setMetodoPago("tarjeta")}
+          >
+            <CreditCard className="h-5 w-5" />
+            Tarjeta
+          </Button>
         </div>
+        {metodoPago === "tarjeta" && (
+          <Badge variant="secondary" className="mt-2 text-xs">
+            No suma a caja
+          </Badge>
+        )}
       </div>
     )
   }
@@ -1000,26 +837,21 @@ export function VehicleExit() {
                 )}
               </div>
 
-              {/* Selector de método de pago */}
-              <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3">
+              {/* Selector de método de pago MEJORADO */}
+              <div className="w-full">
                 <MetodoPagoSelector />
-                {metodoPago === "tarjeta" && (
-                  <Badge variant="secondary" className="text-xs">
-                    No suma a caja
-                  </Badge>
-                )}
               </div>
 
-              {/* Botones de cobro según método de pago */}
-              <div className="grid grid-cols-2 gap-2">
+              {/* Botones de cobro según método de pago - SIN DIÁLOGO */}
+              <div className="grid grid-cols-2 gap-3">
                 {metodoPago === "efectivo" ? (
                   <Button
-                    onClick={handleRegistrarSalidaNormal}
-                    className={`w-full ${vehiculo.es_nocturno ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+                    onClick={procesarSalidaEfectivo}
+                    className={`w-full h-12 text-base ${vehiculo.es_nocturno ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'}`}
                     size="lg"
                     disabled={processing}
                   >
-                    <Banknote className="h-4 w-4 mr-2" />
+                    <Banknote className="h-5 w-5 mr-2" />
                     {processing
                       ? "Procesando..."
                       : `Cobrar $${vehiculo.costo_estimado.toFixed(2)}`
@@ -1028,11 +860,11 @@ export function VehicleExit() {
                 ) : (
                   <Button
                     onClick={procesarSalidaTarjeta}
-                    className={`w-full ${vehiculo.es_nocturno ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+                    className={`w-full h-12 text-base ${vehiculo.es_nocturno ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'}`}
                     size="lg"
                     disabled={processing}
                   >
-                    <CreditCard className="h-4 w-4 mr-2" />
+                    <CreditCard className="h-5 w-5 mr-2" />
                     {processing
                       ? "Procesando..."
                       : `Cobrar $${vehiculo.costo_estimado.toFixed(2)}`
@@ -1042,11 +874,11 @@ export function VehicleExit() {
 
                 <Button
                   onClick={handleSolicitarNoPagado}
-                  className="w-full bg-rose-600 hover:bg-rose-700"
+                  className="w-full h-12 text-base bg-rose-600 hover:bg-rose-700"
                   size="lg"
                   disabled={processing || passwordBlocked}
                 >
-                  <Lock className="h-4 w-4 mr-2" />
+                  <Lock className="h-5 w-5 mr-2" />
                   {processing
                     ? "Procesando..."
                     : passwordBlocked
@@ -1066,16 +898,7 @@ export function VehicleExit() {
         </CardContent>
       </Card>
 
-      {/* Diálogo de pago en efectivo con cálculo de vuelto */}
-      {vehiculo && (
-        <PagoEfectivoDialog
-          total={vehiculo.costo_estimado}
-          open={pagoDialogOpen}
-          onOpenChange={setPagoDialogOpen}
-          onConfirmar={procesarSalidaEfectivo}
-          onCancelar={() => setPagoDialogOpen(false)}
-        />
-      )}
+      {/* ✅ ELIMINADO: Diálogo de pago en efectivo con cálculo de vuelto */}
 
       {/* Diálogo de contraseña para NO PAGADO */}
       <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>

@@ -40,6 +40,7 @@ import {
   PackagePlus,
   DollarSign,
   Package,
+  Pizza,
   Receipt,
   Printer,
   ShowerHead,
@@ -53,9 +54,8 @@ import {
   Search,
   Cigarette,
   Gift,
-  Soup,
-  Pizza,
   Sparkles,
+  Pencil,
 } from "lucide-react"
 import { Calendar } from "@/components/ui/calendar"
 import { format } from "date-fns"
@@ -64,6 +64,7 @@ import { cn } from "@/lib/utils"
 import {
   obtenerProductos,
   crearProducto,
+  actualizarProducto,
   crearVenta,
   obtenerVentas,
   obtenerReporteDiarioVentas,
@@ -138,6 +139,166 @@ const CATEGORIA_ICONOS: Record<string, { icon: any; color: string }> = {
   comida: { icon: Pizza, color: "text-orange-600 bg-orange-500/10" },
 }
 
+// ─── Componente DateRangePicker personalizado ─────────────────────────────
+function CustomDateRangePicker({
+  onDateChange
+}: {
+  onDateChange: (date: Date | null) => void
+}) {
+  const [date, setDate] = useState<Date | null>(new Date())
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant={"outline"}
+          className={cn(
+            "w-[240px] justify-start text-left font-normal",
+            !date && "text-muted-foreground"
+          )}
+        >
+          <CalendarIcon className="mr-2 h-4 w-4" />
+          {date ? format(date, "PPP", { locale: es }) : <span>Filtrar por fecha</span>}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="single"
+          selected={date || undefined}
+          onSelect={(newDate) => {
+            setDate(newDate || null)
+            onDateChange(newDate || null)
+          }}
+          initialFocus
+          locale={es}
+        />
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+// ─── Dialog: Editar producto (para corregir errores) ──────────────────────
+
+function EditarProductoDialog({
+  producto,
+  onProductoActualizado,
+}: {
+  producto: Producto
+  onProductoActualizado: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [nombre, setNombre] = useState(producto.nombre)
+  const [precio, setPrecio] = useState(producto.precio.toString())
+  const [stock, setStock] = useState(producto.stock.toString())
+  const [categoria, setCategoria] = useState(producto.categoria)
+  const [guardando, setGuardando] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      setNombre(producto.nombre)
+      setPrecio(producto.precio.toString())
+      setStock(producto.stock.toString())
+      setCategoria(producto.categoria)
+    }
+  }, [open, producto])
+
+  const handleSubmit = async () => {
+    if (!nombre || !precio || !stock) return
+    setGuardando(true)
+    const toastId = toast.loading("Actualizando producto...")
+    try {
+      await actualizarProducto(producto.id, {
+        nombre,
+        precio: parseFloat(precio),
+        stock: parseInt(stock),
+        categoria,
+      })
+      toast.success("Producto actualizado exitosamente", {
+        id: toastId,
+        icon: <CheckCircle className="h-4 w-4" />
+      })
+      setOpen(false)
+      onProductoActualizado()
+    } catch (error) {
+      toast.error("Error al actualizar producto", {
+        id: toastId,
+        description: error instanceof Error ? error.message : "Error desconocido",
+        icon: <XCircle className="h-4 w-4" />,
+      })
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-6 w-6">
+          <Pencil className="h-3 w-3" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Editar producto</DialogTitle>
+          <DialogDescription>
+            Modifica los datos del producto
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label>Nombre del producto</Label>
+            <Input
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label>Precio ($)</Label>
+              <Input
+                type="number"
+                step="0.05"
+                min="0"
+                value={precio}
+                onChange={(e) => setPrecio(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Stock</Label>
+              <Input
+                type="number"
+                min="0"
+                value={stock}
+                onChange={(e) => setStock(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <Label>Categoría</Label>
+            <select
+              value={categoria}
+              onChange={(e) => setCategoria(e.target.value as any)}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="bebidas">Bebidas</option>
+              <option value="snacks">Snacks</option>
+              <option value="otros">Otros</option>
+            </select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)} disabled={guardando}>
+            Cancelar
+          </Button>
+          <Button onClick={handleSubmit} disabled={guardando}>
+            {guardando ? "Guardando..." : "Guardar cambios"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ─── Dialog: Agregar producto nuevo ───────────────────────────────────────
 
 function AgregarProductoDialog({
@@ -207,9 +368,8 @@ function AgregarProductoDialog({
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">
-            <Label htmlFor={`nombre-${categoria}`}>Nombre del producto</Label>
+            <Label>Nombre del producto</Label>
             <Input
-              id={`nombre-${categoria}`}
               placeholder={categoria === "bebidas" ? "Ej: Limonada" : categoria === "snacks" ? "Ej: Nachos" : "Ej: Cigarrillos Marlboro"}
               value={nombre}
               onChange={(e) => setNombre(e.target.value)}
@@ -217,9 +377,8 @@ function AgregarProductoDialog({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
-              <Label htmlFor={`precio-${categoria}`}>Precio ($)</Label>
+              <Label>Precio ($)</Label>
               <Input
-                id={`precio-${categoria}`}
                 type="number"
                 step="0.05"
                 min="0"
@@ -229,9 +388,8 @@ function AgregarProductoDialog({
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor={`stock-${categoria}`}>Stock inicial</Label>
+              <Label>Stock inicial</Label>
               <Input
-                id={`stock-${categoria}`}
                 type="number"
                 min="1"
                 placeholder="0"
@@ -257,7 +415,7 @@ function AgregarProductoDialog({
   )
 }
 
-// ─── Componente de búsqueda en tiempo real ────────────────────────────────
+// ─── Componente de búsqueda en tiempo real ──────────────────────
 
 function BuscadorProductos({
   productos,
@@ -271,16 +429,16 @@ function BuscadorProductos({
   const [busqueda, setBusqueda] = useState("")
   const [resultados, setResultados] = useState<Producto[]>([])
   const [open, setOpen] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (busqueda.trim().length >= 2) {
       const termino = busqueda.toLowerCase()
       const filtrados = productos
-        // ✅ Buscar TODOS los productos (bebidas, snacks, otros)
         .filter(p =>
           p.nombre.toLowerCase().includes(termino) && p.activo
         )
-        .slice(0, 8) // Limitar a 8 resultados
+        .slice(0, 8)
 
       setResultados(filtrados)
       setOpen(filtrados.length > 0)
@@ -308,79 +466,76 @@ function BuscadorProductos({
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <div className="relative w-full">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Buscar cualquier producto: bebidas, snacks, cigarrillos, golosinas..."
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            className="pl-9 w-full"
-            autoComplete="off"
-          />
-        </div>
-      </PopoverTrigger>
-      <PopoverContent
-        className="w-[var(--radix-popover-trigger-width)] p-0"
-        align="start"
-        sideOffset={5}
-      >
-        <div className="max-h-[300px] overflow-y-auto">
-          {resultados.length === 0 ? (
-            <div className="p-4 text-center text-sm text-muted-foreground">
-              No se encontraron productos
-            </div>
-          ) : (
-            resultados.map((producto) => {
-              const cantidadEnCarrito = getCantidadEnCarrito(producto.id)
-              const sinStock = producto.stock - cantidadEnCarrito <= 0
-              const { icon: Icon, color } = getIconoYCategoria(producto.categoria)
+    <div className="relative w-full">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          ref={inputRef}
+          placeholder="Buscar cualquier producto: bebidas, snacks, cigarrillos, golosinas..."
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          onBlur={() => {
+            setTimeout(() => setOpen(false), 200)
+          }}
+          onFocus={() => {
+            if (resultados.length > 0) setOpen(true)
+          }}
+          className="pl-9 w-full"
+          autoComplete="off"
+        />
+      </div>
+      
+      {open && resultados.length > 0 && (
+        <div className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-[300px] overflow-y-auto">
+          {resultados.map((producto) => {
+            const cantidadEnCarrito = getCantidadEnCarrito(producto.id)
+            const sinStock = producto.stock - cantidadEnCarrito <= 0
+            const { icon: Icon, color } = getIconoYCategoria(producto.categoria)
 
-              return (
-                <div
-                  key={producto.id}
-                  className={`
-                    flex items-center justify-between p-3 
-                    ${sinStock ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted/50 cursor-pointer'} 
-                    border-b last:border-0
-                  `}
-                  onClick={() => {
-                    if (!sinStock) {
-                      onAgregarCarrito(producto)
-                      setBusqueda("")
-                      setOpen(false)
-                    }
-                  }}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${color}`}>
-                      <Icon className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-sm">{producto.nombre}</p>
-                      <p className="text-xs text-muted-foreground">
-                        ${producto.precio.toFixed(2)} • Stock: {producto.stock - cantidadEnCarrito}
-                      </p>
-                    </div>
+            return (
+              <div
+                key={producto.id}
+                className={`
+                  flex items-center justify-between p-3 
+                  ${sinStock ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted/50 cursor-pointer'} 
+                  border-b last:border-0
+                `}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  if (!sinStock) {
+                    onAgregarCarrito(producto)
+                    setBusqueda("")
+                    setOpen(false)
+                  }
+                }}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${color}`}>
+                    <Icon className="h-4 w-4" />
                   </div>
-                  {cantidadEnCarrito > 0 && (
-                    <Badge variant="secondary" className="ml-2 text-xs">
-                      {cantidadEnCarrito} en factura
-                    </Badge>
-                  )}
-                  {sinStock && (
-                    <Badge variant="destructive" className="ml-2 text-xs">
-                      Agotado
-                    </Badge>
-                  )}
+                  <div>
+                    <p className="font-medium text-sm">{producto.nombre}</p>
+                    <p className="text-xs text-muted-foreground">
+                      ${producto.precio.toFixed(2)} • Stock: {producto.stock - cantidadEnCarrito}
+                    </p>
+                  </div>
                 </div>
-              )
-            })
-          )}
+                {cantidadEnCarrito > 0 && (
+                  <Badge variant="secondary" className="ml-2 text-xs">
+                    {cantidadEnCarrito} en factura
+                  </Badge>
+                )}
+                {sinStock && (
+                  <Badge variant="destructive" className="ml-2 text-xs">
+                    Agotado
+                  </Badge>
+                )}
+              </div>
+            )
+          })}
         </div>
-      </PopoverContent>
-    </Popover>
+      )}
+    </div>
   )
 }
 
@@ -417,8 +572,6 @@ function CatalogoDialog({
 
   const getCantidad = (id: number) =>
     carrito.find((c) => c.producto.id === id)?.cantidad ?? 0
-
-  // En services-panel.tsx - Asegurar que el ícono para "otros" sea correcto
 
   const getCategoriaInfo = () => {
     if (categoria === "bebidas") return {
@@ -483,7 +636,6 @@ function CatalogoDialog({
             Selecciona los productos que deseas agregar a la factura.
           </DialogDescription>
 
-          {/* Buscador dentro del catálogo */}
           <div className="relative mt-2">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -511,7 +663,16 @@ function CatalogoDialog({
               return (
                 <div
                   key={producto.id}
-                  className="flex items-center justify-between gap-4 rounded-lg border bg-card p-3 transition-all hover:shadow-sm"
+                  className={`
+                    flex items-center justify-between gap-4 rounded-lg border bg-card p-3 
+                    transition-all hover:shadow-sm cursor-pointer
+                    ${sinStock ? 'opacity-50 cursor-not-allowed' : 'hover:border-primary hover:bg-muted/50'}
+                  `}
+                  onClick={() => {
+                    if (!sinStock) {
+                      onAgregarCarrito(producto)
+                    }
+                  }}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -534,14 +695,21 @@ function CatalogoDialog({
                       </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <EditarProductoDialog
+                      producto={producto}
+                      onProductoActualizado={onProductoAgregado}
+                    />
                     {cant > 0 && (
                       <>
                         <Button
                           variant="outline"
                           size="icon"
                           className="h-8 w-8 bg-transparent"
-                          onClick={() => onQuitarCarrito(producto.id)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onQuitarCarrito(producto.id)
+                          }}
                         >
                           <Minus className="h-3 w-3" />
                         </Button>
@@ -554,7 +722,12 @@ function CatalogoDialog({
                       variant={cant > 0 ? "default" : "outline"}
                       size="icon"
                       className={`h-8 w-8 ${cant === 0 ? "bg-transparent" : ""}`}
-                      onClick={() => onAgregarCarrito(producto)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (!sinStock) {
+                          onAgregarCarrito(producto)
+                        }
+                      }}
                       disabled={sinStock}
                     >
                       <Plus className="h-3 w-3" />
@@ -575,17 +748,28 @@ function CatalogoDialog({
   )
 }
 
-// ─── Dialog: Baño ─────────────────────────────────────────────────────────
+// ─── Dialog: Baño (con selector de pago integrado) ────────────────────────
 
 function BanoDialog({
   banoItem,
-  onSetBano
+  onSetBano,
+  onCobrar,
 }: {
   banoItem: ItemBanoLocal | null
   onSetBano: (personas: number) => void
+  onCobrar: (personas: number, metodoPago: "efectivo" | "tarjeta") => void
 }) {
   const [open, setOpen] = useState(false)
+  const [metodoPago, setMetodoPago] = useState<"efectivo" | "tarjeta">("efectivo")
   const personas = banoItem?.personas ?? 0
+  const total = personas * 0.25
+
+  const handleCobrar = () => {
+    if (personas > 0) {
+      onCobrar(personas, metodoPago)
+      setOpen(false)
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -615,7 +799,7 @@ function BanoDialog({
             Cada persona paga $0.25. Selecciona cuántas personas van a usar el baño.
           </DialogDescription>
         </DialogHeader>
-        <div className="py-6">
+        <div className="py-4">
           <div className="flex flex-col items-center gap-6">
             <div className="flex items-center gap-6">
               <Button
@@ -645,29 +829,58 @@ function BanoDialog({
                 <Plus className="h-6 w-6" />
               </Button>
             </div>
+
             <div className="w-full rounded-lg bg-muted/50 p-4 text-center">
               <p className="text-sm text-muted-foreground">Total baño</p>
               <p className="text-3xl font-bold text-foreground">
-                ${(personas * 0.25).toFixed(2)}
+                ${total.toFixed(2)}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
                 {personas} x $0.25
               </p>
             </div>
+
+            <div className="w-full space-y-3">
+              <Label className="text-sm font-medium">Método de pago</Label>
+              <div className="grid grid-cols-2 gap-3">
+                <Button
+                  variant={metodoPago === "efectivo" ? "default" : "outline"}
+                  className={`h-12 text-base gap-2 ${metodoPago === "efectivo" ? "bg-green-600 hover:bg-green-700" : ""}`}
+                  onClick={() => setMetodoPago("efectivo")}
+                >
+                  <Banknote className="h-5 w-5" />
+                  Efectivo
+                </Button>
+                <Button
+                  variant={metodoPago === "tarjeta" ? "default" : "outline"}
+                  className={`h-12 text-base gap-2 ${metodoPago === "tarjeta" ? "bg-blue-600 hover:bg-blue-700" : ""}`}
+                  onClick={() => setMetodoPago("tarjeta")}
+                >
+                  <CreditCard className="h-5 w-5" />
+                  Tarjeta
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
-        <DialogFooter>
+        <DialogFooter className="flex gap-2">
           {personas > 0 && (
             <Button
               variant="ghost"
-              className="text-destructive hover:text-destructive"
+              className="text-destructive hover:text-destructive flex-1"
               onClick={() => { onSetBano(0); setOpen(false) }}
             >
               Quitar
             </Button>
           )}
-          <Button onClick={() => setOpen(false)} className="flex-1">
-            Listo
+          <Button
+            onClick={handleCobrar}
+            className="flex-1 gap-2"
+            disabled={personas === 0}
+            size="lg"
+          >
+            {metodoPago === "efectivo" ? <Banknote className="h-4 w-4" /> : <CreditCard className="h-4 w-4" />}
+            Cobrar ${total.toFixed(2)}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -675,18 +888,22 @@ function BanoDialog({
   )
 }
 
-// ─── Dialog: Hotel ─────────────────────────────────────────────────────────
+// ─── Dialog: Hotel (con selector de pago integrado) ───────────────────────
+// ─── Dialog: Hotel (con selector de pago integrado) ───────────────────────
 
 function HotelDialog({
   hotelItem,
-  onSetHotel
+  onSetHotel,
+  onCobrar,
 }: {
   hotelItem: ItemHotelLocal | null
   onSetHotel: (item: ItemHotelLocal | null) => void
+  onCobrar: (habitacion: string, monto: number, metodoPago: "efectivo" | "tarjeta") => void
 }) {
   const [open, setOpen] = useState(false)
   const [habitacion, setHabitacion] = useState(hotelItem?.habitacion ?? "")
   const [monto, setMonto] = useState(hotelItem?.monto?.toString() ?? "")
+  const [metodoPago, setMetodoPago] = useState<"efectivo" | "tarjeta">("efectivo")
 
   const handleOpen = (isOpen: boolean) => {
     if (isOpen) {
@@ -697,6 +914,26 @@ function HotelDialog({
   }
 
   const montoNum = parseFloat(monto) || 0
+
+  const handleHabitacionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    // Solo permitir números del 1 al 7
+    if (value === "") {
+      setHabitacion("")
+    } else {
+      const num = parseInt(value)
+      if (!isNaN(num) && num >= 1 && num <= 7) {
+        setHabitacion(num.toString())
+      }
+    }
+  }
+
+  const handleCobrar = () => {
+    if (habitacion && montoNum > 0) {
+      onCobrar(habitacion, montoNum, metodoPago)
+      setOpen(false)
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={handleOpen}>
@@ -723,17 +960,24 @@ function HotelDialog({
             <DialogTitle>Servicio de Hotel</DialogTitle>
           </div>
           <DialogDescription>
-            Registra el cobro de una habitación. Ingresa el número y el monto a cobrar.
+            Registra el cobro de una habitación. Selecciona el número de habitación (1-7) y el monto a cobrar.
           </DialogDescription>
         </DialogHeader>
         <div className="py-4 space-y-4">
           <div className="grid gap-2">
-            <Label>Número de habitación</Label>
+            <Label>Número de habitación (1-7)</Label>
             <Input
-              placeholder="Ej: 101, 205, Suite A"
+              type="number"
+              min="1"
+              max="7"
+              placeholder="Ej: 1, 2, 3, 4, 5, 6, 7"
               value={habitacion}
-              onChange={(e) => setHabitacion(e.target.value)}
+              onChange={handleHabitacionChange}
+              className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
+            {habitacion && (parseInt(habitacion) < 1 || parseInt(habitacion) > 7) && (
+              <p className="text-xs text-destructive">La habitación debe ser del 1 al 7</p>
+            )}
           </div>
           <div className="grid gap-2">
             <Label>Monto a cobrar ($)</Label>
@@ -746,34 +990,58 @@ function HotelDialog({
               onChange={(e) => setMonto(e.target.value)}
             />
           </div>
+
           {habitacion && montoNum > 0 && (
-            <div className="w-full rounded-lg bg-muted/50 p-4 text-center">
-              <p className="text-sm text-muted-foreground">Total habitación {habitacion}</p>
-              <p className="text-3xl font-bold text-foreground">
-                ${montoNum.toFixed(2)}
-              </p>
-            </div>
+            <>
+              <div className="w-full rounded-lg bg-muted/50 p-4 text-center">
+                <p className="text-sm text-muted-foreground">Total habitación {habitacion}</p>
+                <p className="text-3xl font-bold text-foreground">
+                  ${montoNum.toFixed(2)}
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Método de pago</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    variant={metodoPago === "efectivo" ? "default" : "outline"}
+                    className={`h-12 text-base gap-2 ${metodoPago === "efectivo" ? "bg-green-600 hover:bg-green-700" : ""}`}
+                    onClick={() => setMetodoPago("efectivo")}
+                  >
+                    <Banknote className="h-5 w-5" />
+                    Efectivo
+                  </Button>
+                  <Button
+                    variant={metodoPago === "tarjeta" ? "default" : "outline"}
+                    className={`h-12 text-base gap-2 ${metodoPago === "tarjeta" ? "bg-blue-600 hover:bg-blue-700" : ""}`}
+                    onClick={() => setMetodoPago("tarjeta")}
+                  >
+                    <CreditCard className="h-5 w-5" />
+                    Tarjeta
+                  </Button>
+                </div>
+              </div>
+            </>
           )}
         </div>
-        <DialogFooter>
+        <DialogFooter className="flex gap-2">
           {hotelItem && (
             <Button
               variant="ghost"
-              className="text-destructive hover:text-destructive"
+              className="text-destructive hover:text-destructive flex-1"
               onClick={() => { onSetHotel(null); setOpen(false) }}
             >
               Quitar
             </Button>
           )}
           <Button
-            onClick={() => {
-              onSetHotel({ habitacion, monto: montoNum });
-              setOpen(false)
-            }}
-            className="flex-1"
-            disabled={!habitacion || montoNum <= 0}
+            onClick={handleCobrar}
+            className="flex-1 gap-2"
+            disabled={!habitacion || montoNum <= 0 || parseInt(habitacion) < 1 || parseInt(habitacion) > 7}
+            size="lg"
           >
-            {hotelItem ? "Actualizar" : "Agregar a factura"}
+            {metodoPago === "efectivo" ? <Banknote className="h-4 w-4" /> : <CreditCard className="h-4 w-4" />}
+            Cobrar ${montoNum.toFixed(2)}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -781,9 +1049,9 @@ function HotelDialog({
   )
 }
 
-// ─── Selector de método de pago ────────────────────────────────────────────
+// ─── Selector de método de pago MEJORADO ───────────────────────────────────
 
-function MetodoPagoSelector({
+function MetodoPagoSelectorMejorado({
   metodo,
   onChange
 }: {
@@ -791,63 +1059,34 @@ function MetodoPagoSelector({
   onChange: (m: "efectivo" | "tarjeta") => void
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-sm font-medium text-muted-foreground">Pago:</span>
-      <div className="flex rounded-lg border bg-muted/30 p-1">
-        {(["efectivo", "tarjeta"] as const).map((m) => (
-          <button
-            key={m}
-            onClick={() => onChange(m)}
-            className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-all ${metodo === m
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
-              }`}
-          >
-            {m === "efectivo" ? <Banknote className="h-4 w-4" /> : <CreditCard className="h-4 w-4" />}
-            {m === "efectivo" ? "Efectivo" : "Tarjeta"}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ─── Selector de fecha ─────────────────────────────────────────────────────
-
-function DateRangePicker({
-  onDateChange
-}: {
-  onDateChange: (date: Date | null) => void
-}) {
-  const [date, setDate] = useState<Date | null>(new Date())
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
+    <div className="space-y-2">
+      <Label className="text-base font-medium">Método de pago</Label>
+      <div className="grid grid-cols-2 gap-4">
         <Button
-          variant={"outline"}
-          className={cn(
-            "w-[240px] justify-start text-left font-normal",
-            !date && "text-muted-foreground"
-          )}
+          variant={metodo === "efectivo" ? "default" : "outline"}
+          className={`h-14 text-lg gap-3 w-full ${metodo === "efectivo" ? "bg-green-600 hover:bg-green-700" : "border-2"}`}
+          onClick={() => onChange("efectivo")}
+          size="lg"
         >
-          <CalendarIcon className="mr-2 h-4 w-4" />
-          {date ? format(date, "PPP", { locale: es }) : <span>Filtrar por fecha</span>}
+          <Banknote className="h-6 w-6" />
+          <span className="font-semibold">Efectivo</span>
         </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
-        <Calendar
-          mode="single"
-          selected={date || undefined}
-          onSelect={(newDate) => {
-            setDate(newDate || null)
-            onDateChange(newDate || null)
-          }}
-          initialFocus
-          locale={es}
-        />
-      </PopoverContent>
-    </Popover>
+        <Button
+          variant={metodo === "tarjeta" ? "default" : "outline"}
+          className={`h-14 text-lg gap-3 w-full ${metodo === "tarjeta" ? "bg-blue-600 hover:bg-blue-700" : "border-2"}`}
+          onClick={() => onChange("tarjeta")}
+          size="lg"
+        >
+          <CreditCard className="h-6 w-6" />
+          <span className="font-semibold">Tarjeta</span>
+        </Button>
+      </div>
+      {metodo === "tarjeta" && (
+        <Badge variant="secondary" className="mt-2 text-sm py-1 px-3">
+          No suma a caja
+        </Badge>
+      )}
+    </div>
   )
 }
 
@@ -881,11 +1120,14 @@ export function ServicesPanel() {
     () => obtenerReporteDiarioVentas(),
     { refreshInterval: 60000 }
   )
+
   // Estado del carrito
   const [carrito, setCarrito] = useState<ItemCarrito[]>([])
+  const [metodoPago, setMetodoPago] = useState<"efectivo" | "tarjeta">("efectivo")
+
+  // Estados para servicios especiales
   const [banoItem, setBanoItem] = useState<ItemBanoLocal | null>(null)
   const [hotelItem, setHotelItem] = useState<ItemHotelLocal | null>(null)
-  const [metodoPago, setMetodoPago] = useState<"efectivo" | "tarjeta">("efectivo")
 
   const [ventaActual, setVentaActual] = useState<VentaRegistrada | null>(null)
   const [ticketOpen, setTicketOpen] = useState(false)
@@ -896,23 +1138,17 @@ export function ServicesPanel() {
 
   const facturaRef = useRef<HTMLDivElement>(null)
 
-  // Totales
-  const totalProductos = carrito.reduce(
+  // Totales del carrito
+  const totalCarrito = carrito.reduce(
     (sum, item) => sum + item.producto.precio * item.cantidad, 0
   )
-  const totalBano = banoItem ? banoItem.personas * 0.25 : 0
-  const totalHotel = hotelItem ? hotelItem.monto : 0
-  const totalCarrito = totalProductos + totalBano + totalHotel
-  const totalItemsCarrito =
-    carrito.reduce((sum, item) => sum + item.cantidad, 0) +
-    (banoItem?.personas ?? 0) +
-    (hotelItem ? 1 : 0)
+  const totalItemsCarrito = carrito.reduce((sum, item) => sum + item.cantidad, 0)
 
   const bebidasEnCarrito = carrito.filter((c) => c.producto.categoria === "bebidas")
   const snacksEnCarrito = carrito.filter((c) => c.producto.categoria === "snacks")
   const otrosEnCarrito = carrito.filter((c) => c.producto.categoria === "otros")
 
-  // ── Carrito ───────────────────────────────────────────────────────────────
+  // ── Funciones del carrito ──────────────────────────────────────────────
 
   const agregarAlCarrito = (producto: Producto) => {
     setCarrito((prev) => {
@@ -954,65 +1190,41 @@ export function ServicesPanel() {
     setCarrito((prev) => prev.filter((c) => c.producto.id !== productoId))
   }
 
-  const handleSetBano = (personas: number) => {
-    setBanoItem(personas <= 0 ? null : { personas })
-  }
+  // ── Funciones para servicios especiales ─────────────────────────────────
 
-  // ── Procesar venta ────────────────────────────────────────────────────────
-  // En ServicesPanel - Modificar la función procesarVenta
+  const handleCobrarBano = async (personas: number, metodoPago: "efectivo" | "tarjeta") => {
+    if (personas === 0) return
 
-  const procesarVenta = async () => {
-    if (carrito.length === 0 && !banoItem && !hotelItem) return
     setProcesando(true)
-    const toastId = toast.loading("Procesando venta...")
+    const toastId = toast.loading("Procesando cobro de baño...")
 
     try {
-      // Construir array de items para la API
-      const items = [
-        ...carrito.map((item) => ({
-          producto_id: item.producto.id,
-          cantidad: item.cantidad
-        })),
-        ...(banoItem ? [{
-          tipo_especial: "bano",
-          personas: banoItem.personas
-        }] : []),
-        ...(hotelItem ? [{
-          tipo_especial: "hotel",
-          habitacion: hotelItem.habitacion,
-          monto_hotel: hotelItem.monto
-        }] : []),
-      ]
+      const items = [{
+        tipo_especial: "bano",
+        personas: personas
+      }]
 
       const ventaCreada = await crearVenta(items, metodoPago)
 
-      toast.success("Venta registrada exitosamente", {
+      toast.success("Cobro de baño registrado", {
         id: toastId,
         icon: <CheckCircle className="h-4 w-4" />,
+        description: `Total: $${(personas * 0.25).toFixed(2)}`,
         action: {
           label: "Imprimir",
           onClick: () => handleImprimir(ventaCreada)
         },
       })
 
-      // Limpiar estado
-      setCarrito([])
       setBanoItem(null)
-      setHotelItem(null)
-      setMetodoPago("efectivo")
       setVentaActual(ventaCreada)
       setTicketOpen(true)
 
-      // ✅ REFRESCAR TODOS LOS DATOS
-      mutateProductos()  // Actualiza productos (stock)
-      mutateVentas()     // Actualiza ventas recientes
-      mutateReporte()    // 👈 ACTUALIZA EL REPORTE DIARIO
-
-      // También refrescar estado de caja
+      mutateReporte()
       await refrescarEstado()
 
     } catch (error) {
-      toast.error("Error al procesar venta", {
+      toast.error("Error al procesar cobro", {
         id: toastId,
         description: error instanceof Error ? error.message : "Error desconocido",
         icon: <XCircle className="h-4 w-4" />,
@@ -1022,217 +1234,77 @@ export function ServicesPanel() {
     }
   }
 
-  // ─── Dialog: Pago con efectivo y cálculo de vuelto ────────────────────────
-
-  function PagoEfectivoDialog({
-    total,
-    onConfirmar,
-    onCancelar,
-    open,
-    onOpenChange
-  }: {
-    total: number
-    onConfirmar: (montoRecibido: number) => void
-    onCancelar: () => void
-    open: boolean
-    onOpenChange: (open: boolean) => void
-  }) {
-    const [montoRecibido, setMontoRecibido] = useState("")
-    const [error, setError] = useState("")
-
-    const montoRecibidoNum = parseFloat(montoRecibido) || 0
-    const vuelto = montoRecibidoNum - total
-    const esSuficiente = montoRecibidoNum >= total
-
-    const handleConfirmar = () => {
-      if (!montoRecibido) {
-        setError("Ingrese el monto recibido")
-        return
-      }
-      if (montoRecibidoNum < total) {
-        setError(`El monto es insuficiente. Faltan $${(total - montoRecibidoNum).toFixed(2)}`)
-        return
-      }
-      onConfirmar(montoRecibidoNum)
-      setMontoRecibido("")
-      setError("")
-      onOpenChange(false)
-    }
-
-    // Reset cuando se abre el diálogo
-    useEffect(() => {
-      if (open) {
-        setMontoRecibido("")
-        setError("")
-      }
-    }, [open])
-
-    // Sugerencias rápidas
-    const sugerencias = [
-      total,
-      Math.ceil(total),
-      Math.ceil(total / 5) * 5,
-      Math.ceil(total / 10) * 10,
-    ].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b)
-
-    return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500/10">
-                <Banknote className="h-4 w-4 text-green-600" />
-              </div>
-              <DialogTitle>Pago en efectivo</DialogTitle>
-            </div>
-            <DialogDescription>
-              Ingresa el monto con el que paga el cliente
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            {/* Total a cobrar */}
-            <div className="rounded-lg bg-primary/10 p-4 text-center">
-              <p className="text-xs text-muted-foreground mb-1">Total a cobrar</p>
-              <p className="text-3xl font-bold text-primary">${total.toFixed(2)}</p>
-            </div>
-
-            {/* Monto recibido */}
-            <div className="grid gap-2">
-              <Label htmlFor="monto-recibido">Monto recibido ($)</Label>
-              <div className="relative">
-                <DollarSign className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="monto-recibido"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
-                  value={montoRecibido}
-                  onChange={(e) => {
-                    setMontoRecibido(e.target.value)
-                    setError("")
-                  }}
-                  className="pl-10 text-2xl h-14 font-mono"
-                  autoFocus
-                />
-              </div>
-              {error && (
-                <p className="text-sm text-destructive">{error}</p>
-              )}
-            </div>
-
-            {/* Botones de sugerencias */}
-            <div className="flex flex-wrap gap-2">
-              {sugerencias.map((sug) => (
-                <Button
-                  key={sug}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setMontoRecibido(sug.toFixed(2))
-                    setError("")
-                  }}
-                  className="bg-transparent"
-                >
-                  ${sug.toFixed(2)}
-                </Button>
-              ))}
-            </div>
-
-            {/* Vuelto a devolver */}
-            {montoRecibido && (
-              <div className={`rounded-lg p-4 text-center ${esSuficiente ? 'bg-green-500/10' : 'bg-destructive/10'}`}>
-                <p className="text-xs text-muted-foreground mb-1">
-                  {esSuficiente ? 'Vuelto a devolver' : 'Monto insuficiente'}
-                </p>
-                <p className={`text-2xl font-bold ${esSuficiente ? 'text-green-600' : 'text-destructive'}`}>
-                  {esSuficiente
-                    ? `$${vuelto.toFixed(2)}`
-                    : `Faltan $${(total - montoRecibidoNum).toFixed(2)}`
-                  }
-                </p>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter className="gap-2">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                onCancelar()
-                onOpenChange(false)
-                setMontoRecibido("")
-                setError("")
-              }}
-            >
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleConfirmar}
-              disabled={!esSuficiente || !montoRecibido}
-              className="gap-2 bg-green-600 hover:bg-green-700"
-            >
-              <CheckCircle className="h-4 w-4" />
-              Confirmar pago
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    )
-  }
-  // En ServicesPanel, agregar estos estados:
-
-  // Estado para el diálogo de pago en efectivo
-  const [pagoDialogOpen, setPagoDialogOpen] = useState(false)
-
-  // Modificar la función procesarVenta para recibir el monto recibido:
-
-  const procesarVentaConEfectivo = async (montoRecibido: number) => {
+  const handleCobrarHotel = async (habitacion: string, monto: number, metodoPago: "efectivo" | "tarjeta") => {
     setProcesando(true)
-    const toastId = toast.loading("Procesando venta...")
+    const toastId = toast.loading("Procesando cobro de hotel...")
 
     try {
-      // Construir array de items para la API
-      const items = [
-        ...carrito.map((item) => ({
-          producto_id: item.producto.id,
-          cantidad: item.cantidad
-        })),
-        ...(banoItem ? [{
-          tipo_especial: "bano",
-          personas: banoItem.personas
-        }] : []),
-        ...(hotelItem ? [{
-          tipo_especial: "hotel",
-          habitacion: hotelItem.habitacion,
-          monto_hotel: hotelItem.monto
-        }] : []),
-      ]
+      const items = [{
+        tipo_especial: "hotel",
+        habitacion: habitacion,
+        monto_hotel: monto
+      }]
 
-      const ventaCreada = await crearVenta(items, "efectivo")
+      const ventaCreada = await crearVenta(items, metodoPago)
 
-      // Calcular vuelto
-      const vuelto = montoRecibido - totalCarrito
-
-      toast.success("Venta registrada exitosamente", {
+      toast.success("Cobro de hotel registrado", {
         id: toastId,
         icon: <CheckCircle className="h-4 w-4" />,
-        description: vuelto > 0 ? `Vuelto: $${vuelto.toFixed(2)}` : "Pago exacto",
+        description: `Habitación ${habitacion}: $${monto.toFixed(2)}`,
         action: {
           label: "Imprimir",
           onClick: () => handleImprimir(ventaCreada)
         },
       })
 
-      // Limpiar estado
-      setCarrito([])
-      setBanoItem(null)
       setHotelItem(null)
       setVentaActual(ventaCreada)
       setTicketOpen(true)
 
-      // Refrescar datos
+      mutateReporte()
+      await refrescarEstado()
+
+    } catch (error) {
+      toast.error("Error al procesar cobro", {
+        id: toastId,
+        description: error instanceof Error ? error.message : "Error desconocido",
+        icon: <XCircle className="h-4 w-4" />,
+      })
+    } finally {
+      setProcesando(false)
+    }
+  }
+
+  // ── Procesar venta de productos ─────────────────────────────────────────
+
+  const procesarVentaEfectivo = async () => {
+    if (carrito.length === 0) return
+
+    setProcesando(true)
+    const toastId = toast.loading("Procesando venta...")
+
+    try {
+      const items = carrito.map((item) => ({
+        producto_id: item.producto.id,
+        cantidad: item.cantidad
+      }))
+
+      const ventaCreada = await crearVenta(items, "efectivo")
+
+      toast.success("Venta registrada exitosamente", {
+        id: toastId,
+        icon: <CheckCircle className="h-4 w-4" />,
+        description: "Pago en efectivo procesado",
+        action: {
+          label: "Imprimir",
+          onClick: () => handleImprimir(ventaCreada)
+        },
+      })
+
+      setCarrito([])
+      setVentaActual(ventaCreada)
+      setTicketOpen(true)
+
       mutateProductos()
       mutateVentas()
       mutateReporte()
@@ -1250,25 +1322,16 @@ export function ServicesPanel() {
   }
 
   const procesarVentaTarjeta = async () => {
+    if (carrito.length === 0) return
+
     setProcesando(true)
     const toastId = toast.loading("Procesando venta con tarjeta...")
 
     try {
-      const items = [
-        ...carrito.map((item) => ({
-          producto_id: item.producto.id,
-          cantidad: item.cantidad
-        })),
-        ...(banoItem ? [{
-          tipo_especial: "bano",
-          personas: banoItem.personas
-        }] : []),
-        ...(hotelItem ? [{
-          tipo_especial: "hotel",
-          habitacion: hotelItem.habitacion,
-          monto_hotel: hotelItem.monto
-        }] : []),
-      ]
+      const items = carrito.map((item) => ({
+        producto_id: item.producto.id,
+        cantidad: item.cantidad
+      }))
 
       const ventaCreada = await crearVenta(items, "tarjeta")
 
@@ -1282,14 +1345,10 @@ export function ServicesPanel() {
         },
       })
 
-      // Limpiar estado
       setCarrito([])
-      setBanoItem(null)
-      setHotelItem(null)
       setVentaActual(ventaCreada)
       setTicketOpen(true)
 
-      // Refrescar datos
       mutateProductos()
       mutateVentas()
       mutateReporte()
@@ -1305,7 +1364,8 @@ export function ServicesPanel() {
       setProcesando(false)
     }
   }
-  // ── Imprimir ──────────────────────────────────────────────────────────────
+
+  // ── Imprimir ────────────────────────────────────────────────────────────
 
   const handleImprimir = (venta: VentaRegistrada) => {
     const printWindow = window.open("", "", "width=72mm,height=600")
@@ -1379,7 +1439,7 @@ export function ServicesPanel() {
     }, 500)
   }
 
-  // ── Filtro de ventas por fecha ────────────────────────────────────────────
+  // ── Filtro de ventas por fecha ──────────────────────────────────────────
 
   const ventasFiltradas = ventas?.filter((v: VentaRegistrada) => {
     if (!fechaFiltro) return true
@@ -1391,7 +1451,7 @@ export function ServicesPanel() {
     )
   }) || []
 
-  // ── Loading / Error ───────────────────────────────────────────────────────
+  // ── Loading / Error ─────────────────────────────────────────────────────
 
   if (productosLoading) {
     return (
@@ -1415,531 +1475,311 @@ export function ServicesPanel() {
     )
   }
 
-  // ── JSX ───────────────────────────────────────────────────────────────────
+  // ── JSX ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
-      {/* Buscador rápido en la parte superior */}
-
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Search className="h-5 w-5" />
-            Búsqueda rápida
-          </CardTitle>
-          <CardDescription>
-            Busca cualquier producto: bebidas, snacks, cigarrillos, golosinas y más en tiempo real
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {productos && (
-            <BuscadorProductos
-              productos={productos}
-              onAgregarCarrito={agregarAlCarrito}
-              carrito={carrito}
-            />
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Categorías */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Servicios Adicionales</CardTitle>
-          <CardDescription>
-            Selecciona una categoría para agregar productos a la factura.
-            Puedes mezclar bebidas, snacks, otros productos, baño y hotel.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-6">
-            <CatalogoDialog
-              categoria="bebidas"
-              productos={productos || []}
-              carrito={carrito}
-              onAgregarCarrito={agregarAlCarrito}
-              onQuitarCarrito={quitarDelCarrito}
-              onProductoAgregado={() => mutateProductos()}
-            />
-            <CatalogoDialog
-              categoria="snacks"
-              productos={productos || []}
-              carrito={carrito}
-              onAgregarCarrito={agregarAlCarrito}
-              onQuitarCarrito={quitarDelCarrito}
-              onProductoAgregado={() => mutateProductos()}
-            />
-            <CatalogoDialog
-              categoria="otros"
-              productos={productos || []}
-              carrito={carrito}
-              onAgregarCarrito={agregarAlCarrito}
-              onQuitarCarrito={quitarDelCarrito}
-              onProductoAgregado={() => mutateProductos()}
-            />
-            <BanoDialog
-              banoItem={banoItem}
-              onSetBano={handleSetBano}
-            />
-            <HotelDialog
-              hotelItem={hotelItem}
-              onSetHotel={setHotelItem}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Factura en vivo */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
+      {/* Layout de 2 columnas */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Columna izquierda: Búsqueda y servicios en un solo cuadro */}
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Receipt className="h-5 w-5" />
-                Factura de Venta
+                <Search className="h-5 w-5" />
+                Búsqueda y Servicios
               </CardTitle>
               <CardDescription>
-                {totalItemsCarrito > 0
-                  ? `${totalItemsCarrito} item${totalItemsCarrito !== 1 ? "s" : ""} en la factura`
-                  : "Agrega productos desde las categorías de arriba"}
+                Busca productos rápidamente o selecciona servicios adicionales
               </CardDescription>
-            </div>
-            {totalItemsCarrito > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive"
-                onClick={() => {
-                  setCarrito([]);
-                  setBanoItem(null);
-                  setHotelItem(null)
-                }}
-              >
-                <Trash2 className="h-4 w-4 mr-1" />
-                Vaciar
-              </Button>
-            )}
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Buscador integrado */}
+              {productos && (
+                <BuscadorProductos
+                  productos={productos}
+                  onAgregarCarrito={agregarAlCarrito}
+                  carrito={carrito}
+                />
+              )}
+
+              {/* Grid de servicios adicionales - AHORA CON 5 COLUMNAS */}
+              <div className="grid grid-cols-5 gap-3">
+                <CatalogoDialog
+                  categoria="bebidas"
+                  productos={productos || []}
+                  carrito={carrito}
+                  onAgregarCarrito={agregarAlCarrito}
+                  onQuitarCarrito={quitarDelCarrito}
+                  onProductoAgregado={() => mutateProductos()}
+                />
+                <CatalogoDialog
+                  categoria="snacks"
+                  productos={productos || []}
+                  carrito={carrito}
+                  onAgregarCarrito={agregarAlCarrito}
+                  onQuitarCarrito={quitarDelCarrito}
+                  onProductoAgregado={() => mutateProductos()}
+                />
+                <CatalogoDialog
+                  categoria="otros"
+                  productos={productos || []}
+                  carrito={carrito}
+                  onAgregarCarrito={agregarAlCarrito}
+                  onQuitarCarrito={quitarDelCarrito}
+                  onProductoAgregado={() => mutateProductos()}
+                />
+                <BanoDialog
+                  banoItem={banoItem}
+                  onSetBano={(personas) => setBanoItem(personas <= 0 ? null : { personas })}
+                  onCobrar={handleCobrarBano}
+                />
+                <HotelDialog
+                  hotelItem={hotelItem}
+                  onSetHotel={setHotelItem}
+                  onCobrar={handleCobrarHotel}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Resumen del día */}
+          <div className="grid grid-cols-3 gap-4">
+            <Card>
+              <CardContent className="pt-4">
+                <p className="text-xs text-muted-foreground">Ventas hoy</p>
+                <p className="text-xl font-bold">${(reporte?.total_ventas || 0).toFixed(2)}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <p className="text-xs text-muted-foreground">Tickets</p>
+                <p className="text-xl font-bold">{reporte?.cantidad_tickets || 0}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <p className="text-xs text-muted-foreground">Productos</p>
+                <p className="text-xl font-bold">{productos?.length || 0}</p>
+              </CardContent>
+            </Card>
           </div>
-        </CardHeader>
-        <CardContent>
-          {carrito.length === 0 && !banoItem && !hotelItem ? (
-            <div className="flex flex-col items-center justify-center py-8 text-center">
-              <Receipt className="h-12 w-12 text-muted-foreground/30 mb-3" />
-              <p className="text-muted-foreground">La factura está vacía</p>
-              <p className="text-sm text-muted-foreground">
-                Haz clic en Bebidas, Snacks, Otros, Baño o Hotel para agregar items
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {/* Bebidas */}
-              {bebidasEnCarrito.length > 0 && (
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Coffee className="h-4 w-4 text-blue-600" />
-                    <span className="text-sm font-semibold text-foreground">Bebidas</span>
-                  </div>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-xs">Producto</TableHead>
-                        <TableHead className="text-xs text-center">Cant.</TableHead>
-                        <TableHead className="text-xs text-right">P. Unit</TableHead>
-                        <TableHead className="text-xs text-right">Subtotal</TableHead>
-                        <TableHead className="text-xs w-10"><span className="sr-only">Acciones</span></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {bebidasEnCarrito.map((item) => (
-                        <TableRow key={item.producto.id}>
-                          <TableCell className="text-sm py-2">{item.producto.nombre}</TableCell>
-                          <TableCell className="text-sm py-2 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => quitarDelCarrito(item.producto.id)}
-                              >
-                                <Minus className="h-3 w-3" />
-                              </Button>
-                              <span className="w-5 text-center font-medium">{item.cantidad}</span>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => agregarAlCarrito(item.producto)}
-                                disabled={item.cantidad >= item.producto.stock}
-                              >
-                                <Plus className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-sm py-2 text-right">
-                            ${item.producto.precio.toFixed(2)}
-                          </TableCell>
-                          <TableCell className="text-sm py-2 text-right font-medium">
-                            ${(item.producto.precio * item.cantidad).toFixed(2)}
-                          </TableCell>
-                          <TableCell className="py-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 text-destructive hover:text-destructive"
-                              onClick={() => eliminarDelCarrito(item.producto.id)}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
+        </div>
 
-              {/* Snacks */}
-              {snacksEnCarrito.length > 0 && (
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Cookie className="h-4 w-4 text-amber-600" />
-                    <span className="text-sm font-semibold text-foreground">Snacks</span>
-                  </div>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-xs">Producto</TableHead>
-                        <TableHead className="text-xs text-center">Cant.</TableHead>
-                        <TableHead className="text-xs text-right">P. Unit</TableHead>
-                        <TableHead className="text-xs text-right">Subtotal</TableHead>
-                        <TableHead className="text-xs w-10"><span className="sr-only">Acciones</span></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {snacksEnCarrito.map((item) => (
-                        <TableRow key={item.producto.id}>
-                          <TableCell className="text-sm py-2">{item.producto.nombre}</TableCell>
-                          <TableCell className="text-sm py-2 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => quitarDelCarrito(item.producto.id)}
-                              >
-                                <Minus className="h-3 w-3" />
-                              </Button>
-                              <span className="w-5 text-center font-medium">{item.cantidad}</span>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => agregarAlCarrito(item.producto)}
-                                disabled={item.cantidad >= item.producto.stock}
-                              >
-                                <Plus className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-sm py-2 text-right">
-                            ${item.producto.precio.toFixed(2)}
-                          </TableCell>
-                          <TableCell className="text-sm py-2 text-right font-medium">
-                            ${(item.producto.precio * item.cantidad).toFixed(2)}
-                          </TableCell>
-                          <TableCell className="py-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 text-destructive hover:text-destructive"
-                              onClick={() => eliminarDelCarrito(item.producto.id)}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+        {/* Columna derecha: Factura - SIN SCROLL PARA 3+ PRODUCTOS */}
+        <div className="lg:sticky lg:top-4 lg:self-start">
+          <Card className="border-2 border-primary/20 shadow-lg">
+            <CardHeader className="bg-primary/5 border-b">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Receipt className="h-5 w-5 text-primary" />
+                  <CardTitle>Factura de Venta</CardTitle>
                 </div>
-              )}
-
-              {/* Otros productos */}
-              {otrosEnCarrito.length > 0 && (
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Sparkles className="h-4 w-4 text-purple-600" />
-                    <span className="text-sm font-semibold text-foreground">Otros</span>
-                  </div>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-xs">Producto</TableHead>
-                        <TableHead className="text-xs text-center">Cant.</TableHead>
-                        <TableHead className="text-xs text-right">P. Unit</TableHead>
-                        <TableHead className="text-xs text-right">Subtotal</TableHead>
-                        <TableHead className="text-xs w-10"><span className="sr-only">Acciones</span></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {otrosEnCarrito.map((item) => (
-                        <TableRow key={item.producto.id}>
-                          <TableCell className="text-sm py-2">{item.producto.nombre}</TableCell>
-                          <TableCell className="text-sm py-2 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => quitarDelCarrito(item.producto.id)}
-                              >
-                                <Minus className="h-3 w-3" />
-                              </Button>
-                              <span className="w-5 text-center font-medium">{item.cantidad}</span>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => agregarAlCarrito(item.producto)}
-                                disabled={item.cantidad >= item.producto.stock}
-                              >
-                                <Plus className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-sm py-2 text-right">
-                            ${item.producto.precio.toFixed(2)}
-                          </TableCell>
-                          <TableCell className="text-sm py-2 text-right font-medium">
-                            ${(item.producto.precio * item.cantidad).toFixed(2)}
-                          </TableCell>
-                          <TableCell className="py-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 text-destructive hover:text-destructive"
-                              onClick={() => eliminarDelCarrito(item.producto.id)}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-
-              {/* Baño */}
-              {banoItem && (
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <ShowerHead className="h-4 w-4 text-teal-600" />
-                    <span className="text-sm font-semibold text-foreground">Baño</span>
-                  </div>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-xs">Servicio</TableHead>
-                        <TableHead className="text-xs text-center">Personas</TableHead>
-                        <TableHead className="text-xs text-right">P. Unit</TableHead>
-                        <TableHead className="text-xs text-right">Subtotal</TableHead>
-                        <TableHead className="text-xs w-10"><span className="sr-only">Acciones</span></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      <TableRow>
-                        <TableCell className="text-sm py-2">Uso de baño</TableCell>
-                        <TableCell className="text-sm py-2 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6"
-                              onClick={() => handleSetBano(banoItem.personas - 1)}
-                            >
-                              <Minus className="h-3 w-3" />
-                            </Button>
-                            <span className="w-5 text-center font-medium">{banoItem.personas}</span>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6"
-                              onClick={() => handleSetBano(banoItem.personas + 1)}
-                            >
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-sm py-2 text-right">$0.25</TableCell>
-                        <TableCell className="text-sm py-2 text-right font-medium">
-                          ${totalBano.toFixed(2)}
-                        </TableCell>
-                        <TableCell className="py-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-destructive hover:text-destructive"
-                            onClick={() => setBanoItem(null)}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-
-              {/* Hotel */}
-              {hotelItem && (
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <BedDouble className="h-4 w-4 text-purple-600" />
-                    <span className="text-sm font-semibold text-foreground">Hotel</span>
-                  </div>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-xs">Servicio</TableHead>
-                        <TableHead className="text-xs text-center">Hab.</TableHead>
-                        <TableHead className="text-xs text-right">Monto</TableHead>
-                        <TableHead className="text-xs w-10"><span className="sr-only">Acciones</span></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      <TableRow>
-                        <TableCell className="text-sm py-2">Habitación</TableCell>
-                        <TableCell className="text-sm py-2 text-center font-medium">
-                          {hotelItem.habitacion}
-                        </TableCell>
-                        <TableCell className="text-sm py-2 text-right font-medium">
-                          ${hotelItem.monto.toFixed(2)}
-                        </TableCell>
-                        <TableCell className="py-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-destructive hover:text-destructive"
-                            onClick={() => setHotelItem(null)}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-
-              {/* Total + método de pago + cobrar */}
-              <div className="border-t pt-4 space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-lg font-bold text-foreground">TOTAL:</span>
-                  <span className="text-2xl font-bold text-foreground">
-                    ${totalCarrito.toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3">
-                  <MetodoPagoSelector
-                    metodo={metodoPago}
-                    onChange={setMetodoPago}
-                  />
-                  {metodoPago === "tarjeta" && (
-                    <Badge variant="secondary" className="text-xs">
-                      No suma a caja
-                    </Badge>
-                  )}
-                </div>
-
-                {/* Botón de cobrar según método de pago */}
-                {metodoPago === "efectivo" ? (
+                {totalItemsCarrito > 0 && (
                   <Button
-                    className="w-full gap-2 bg-green-600 hover:bg-green-700"
-                    size="lg"
-                    onClick={() => setPagoDialogOpen(true)}
-                    disabled={procesando || totalCarrito === 0}
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => setCarrito([])}
                   >
-                    <Banknote className="h-5 w-5" />
-                    {procesando ? "Procesando..." : `Cobrar $${totalCarrito.toFixed(2)}`}
-                  </Button>
-                ) : (
-                  <Button
-                    className="w-full gap-2"
-                    size="lg"
-                    onClick={procesarVentaTarjeta}
-                    disabled={procesando || totalCarrito === 0}
-                  >
-                    <CreditCard className="h-5 w-5" />
-                    {procesando ? "Procesando..." : `Cobrar $${totalCarrito.toFixed(2)} (Tarjeta)`}
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Vaciar
                   </Button>
                 )}
               </div>
+              <CardDescription>
+                {totalItemsCarrito > 0
+                  ? `${totalItemsCarrito} producto${totalItemsCarrito !== 1 ? "s" : ""} en la factura`
+                  : "Agrega productos desde la izquierda"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-4">
+              {carrito.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <Receipt className="h-12 w-12 text-muted-foreground/30 mb-3" />
+                  <p className="text-muted-foreground">La factura está vacía</p>
+                  <p className="text-sm text-muted-foreground">
+                    Haz clic en Bebidas, Snacks u Otros para agregar productos
+                  </p>
+                </div>
+              ) : (
+                // ELIMINADO EL max-h-[500px] overflow-y-auto para que NO haya scroll
+                <div className="space-y-4">
+                  {/* Bebidas */}
+                  {bebidasEnCarrito.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 sticky top-0 bg-card py-1">
+                        <Coffee className="h-4 w-4 text-blue-600" />
+                        <span className="text-xs font-semibold uppercase tracking-wider">Bebidas</span>
+                      </div>
+                      {bebidasEnCarrito.map((item) => (
+                        <div key={item.producto.id} className="flex items-center justify-between py-1 border-b border-dashed">
+                          <div className="flex-1">
+                            <p className="text-sm">{item.producto.nombre}</p>
+                            <p className="text-xs text-muted-foreground">${item.producto.precio.toFixed(2)} c/u</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => quitarDelCarrito(item.producto.id)}>
+                              <Minus className="h-3 w-3" />
+                            </Button>
+                            <span className="w-6 text-center font-medium text-sm">{item.cantidad}</span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => agregarAlCarrito(item.producto)}
+                              disabled={item.cantidad >= item.producto.stock}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                            <span className="w-16 text-right font-medium text-sm">
+                              ${(item.producto.precio * item.cantidad).toFixed(2)}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-destructive hover:text-destructive"
+                              onClick={() => eliminarDelCarrito(item.producto.id)}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
-              {/* Diálogo de pago en efectivo */}
-              <PagoEfectivoDialog
-                total={totalCarrito}
-                open={pagoDialogOpen}
-                onOpenChange={setPagoDialogOpen}
-                onConfirmar={procesarVentaConEfectivo}
-                onCancelar={() => setPagoDialogOpen(false)}
-              />
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                  {/* Snacks */}
+                  {snacksEnCarrito.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 sticky top-0 bg-card py-1">
+                        <Cookie className="h-4 w-4 text-amber-600" />
+                        <span className="text-xs font-semibold uppercase tracking-wider">Snacks</span>
+                      </div>
+                      {snacksEnCarrito.map((item) => (
+                        <div key={item.producto.id} className="flex items-center justify-between py-1 border-b border-dashed">
+                          <div className="flex-1">
+                            <p className="text-sm">{item.producto.nombre}</p>
+                            <p className="text-xs text-muted-foreground">${item.producto.precio.toFixed(2)} c/u</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => quitarDelCarrito(item.producto.id)}>
+                              <Minus className="h-3 w-3" />
+                            </Button>
+                            <span className="w-6 text-center font-medium text-sm">{item.cantidad}</span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => agregarAlCarrito(item.producto)}
+                              disabled={item.cantidad >= item.producto.stock}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                            <span className="w-16 text-right font-medium text-sm">
+                              ${(item.producto.precio * item.cantidad).toFixed(2)}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-destructive hover:text-destructive"
+                              onClick={() => eliminarDelCarrito(item.producto.id)}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
-      {/* Resumen del día */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-500/10">
-                <DollarSign className="h-5 w-5 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Ventas hoy</p>
-                <p className="text-2xl font-bold text-foreground">
-                  ${(reporte?.total_ventas || 0).toFixed(2)}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
-                <Receipt className="h-5 w-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Tickets emitidos</p>
-                <p className="text-2xl font-bold text-foreground">
-                  {reporte?.cantidad_tickets || 0}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10">
-                <Package className="h-5 w-5 text-amber-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Productos</p>
-                <p className="text-2xl font-bold text-foreground">
-                  {productos?.length || 0}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+                  {/* Otros */}
+                  {otrosEnCarrito.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 sticky top-0 bg-card py-1">
+                        <Sparkles className="h-4 w-4 text-purple-600" />
+                        <span className="text-xs font-semibold uppercase tracking-wider">Otros</span>
+                      </div>
+                      {otrosEnCarrito.map((item) => (
+                        <div key={item.producto.id} className="flex items-center justify-between py-1 border-b border-dashed">
+                          <div className="flex-1">
+                            <p className="text-sm">{item.producto.nombre}</p>
+                            <p className="text-xs text-muted-foreground">${item.producto.precio.toFixed(2)} c/u</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => quitarDelCarrito(item.producto.id)}>
+                              <Minus className="h-3 w-3" />
+                            </Button>
+                            <span className="w-6 text-center font-medium text-sm">{item.cantidad}</span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => agregarAlCarrito(item.producto)}
+                              disabled={item.cantidad >= item.producto.stock}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                            <span className="w-16 text-right font-medium text-sm">
+                              ${(item.producto.precio * item.cantidad).toFixed(2)}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-destructive hover:text-destructive"
+                              onClick={() => eliminarDelCarrito(item.producto.id)}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Total y método de pago */}
+                  <div className="border-t-2 pt-4 mt-2 space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-base font-bold">TOTAL:</span>
+                      <span className="text-2xl font-bold text-primary">
+                        ${totalCarrito.toFixed(2)}
+                      </span>
+                    </div>
+
+                    <MetodoPagoSelectorMejorado
+                      metodo={metodoPago}
+                      onChange={setMetodoPago}
+                    />
+
+                    {/* Botones de cobro */}
+                    {metodoPago === "efectivo" ? (
+                      <Button
+                        className="w-full gap-2 h-14 text-lg bg-green-600 hover:bg-green-700"
+                        onClick={procesarVentaEfectivo}
+                        disabled={procesando || totalCarrito === 0}
+                      >
+                        <Banknote className="h-6 w-6" />
+                        Cobrar ${totalCarrito.toFixed(2)} (Efectivo)
+                      </Button>
+                    ) : (
+                      <Button
+                        className="w-full gap-2 h-14 text-lg bg-blue-600 hover:bg-blue-700"
+                        onClick={procesarVentaTarjeta}
+                        disabled={procesando || totalCarrito === 0}
+                      >
+                        <CreditCard className="h-6 w-6" />
+                        Cobrar ${totalCarrito.toFixed(2)} (Tarjeta)
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
-      {/* Ventas recientes con filtro por fecha */}
+      {/* Ventas recientes */}
       {ventas && ventas.length > 0 && (
         <Card>
           <CardHeader>
@@ -1954,7 +1794,7 @@ export function ServicesPanel() {
                 </CardDescription>
               </div>
               <div className="flex items-center gap-2">
-                <DateRangePicker onDateChange={setFechaFiltro} />
+                <CustomDateRangePicker onDateChange={setFechaFiltro} />
                 {fechaFiltro && (
                   <Button
                     variant="ghost"
