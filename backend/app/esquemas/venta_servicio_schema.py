@@ -50,8 +50,8 @@ class VentaServicioCreate(BaseModel):
     """Schema para crear venta de servicio"""
     items: List[ItemVentaCreate] = Field(..., min_items=1)
 
-    # Método de pago (efectivo no suma a caja en tarjeta)
-    metodo_pago: Literal["efectivo", "tarjeta"] = "efectivo"
+    # ✅ ACTUALIZADO: Agregado "transferencia" como método de pago válido
+    metodo_pago: Literal["efectivo", "tarjeta", "transferencia"] = "efectivo"
 
 
 class VentaServicioResponse(BaseModel):

@@ -178,6 +178,41 @@ async def debug_estado_caja(db: Session = Depends(get_db)):
             "traceback": traceback.format_exc()
         }
 
+# =========================================
+# NUEVO ENDPOINT - Obtener caja por ID (para historial)
+# =========================================
+
+@router.get("/{caja_id}")
+async def obtener_caja_por_id(caja_id: int, db: Session = Depends(get_db)):
+    """Obtiene una caja específica por su ID (útil para ver detalles de cajas cerradas)"""
+    try:
+        from app.modelos.caja import Caja
+        caja = db.query(Caja).filter(Caja.id == caja_id).first()
+        if not caja:
+            raise HTTPException(status_code=404, detail="Caja no encontrada")
+        
+        caja_dict = caja.to_dict()
+        
+        # Agregar denominaciones
+        denominaciones = CajaService.obtener_denominaciones(db, caja_id)
+        caja_dict['denominaciones'] = denominaciones
+        
+        # Agregar egresos
+        egresos = CajaService.obtener_egresos_caja(db, caja_id)
+        caja_dict['egresos'] = egresos
+        caja_dict['total_egresos'] = sum(e['monto'] for e in egresos)
+        
+        # Agregar movimientos de esa caja
+        movimientos = CajaService.obtener_movimientos_por_caja(db, caja_id, caja.fecha_apertura)
+        caja_dict['movimientos'] = movimientos
+        
+        return caja_dict
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener caja: {str(e)}")
+    
+
 @router.get("/health")
 def health_check():
     return {"success": True, "message": "Servicio de caja funcionando correctamente"}

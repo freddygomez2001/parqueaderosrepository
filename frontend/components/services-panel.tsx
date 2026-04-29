@@ -31,6 +31,13 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   CalendarIcon,
   Coffee,
   Cookie,
@@ -56,6 +63,11 @@ import {
   Gift,
   Sparkles,
   Pencil,
+  Landmark,
+  TrendingUp,
+  BarChart3,
+  RefreshCw,
+  FileText,
 } from "lucide-react"
 import { Calendar } from "@/components/ui/calendar"
 import { format } from "date-fns"
@@ -69,6 +81,7 @@ import {
   obtenerVentas,
   obtenerReporteDiarioVentas,
 } from "@/servicios/serviciosService"
+import { BASE_URL } from "@/servicios/api"
 import { useCaja } from "@/lib/caja-context"
 
 // Datos del hotel
@@ -104,6 +117,7 @@ interface ItemBanoLocal {
 interface ItemHotelLocal {
   habitacion: string
   monto: number
+  metodoPago?: "efectivo" | "tarjeta" | "transferencia"
 }
 
 interface VentaRegistrada {
@@ -111,7 +125,7 @@ interface VentaRegistrada {
   items: { nombre: string; cantidad: number; precio_unit: number; subtotal: number }[]
   total: number
   fecha: string
-  metodo_pago: "efectivo" | "tarjeta"
+  metodo_pago: "efectivo" | "tarjeta" | "transferencia"
 }
 
 interface ReporteVentas {
@@ -127,6 +141,27 @@ interface ReporteVentas {
     bano: number
     hotel: number
   }
+}
+
+interface ReporteDesglose {
+  fecha?: string
+  fecha_inicio?: string
+  fecha_fin?: string
+  total_ventas: number
+  total_efectivo: number
+  total_tarjeta: number
+  total_transferencia: number
+  cantidad_tickets: number
+  total_productos_vendidos: number
+  ventas_por_categoria: {
+    bebidas: number
+    snacks: number
+    otros: number
+    bano: number
+    hotel: number
+  }
+  ventas_por_habitacion?: Record<string, { total: number; cantidad: number; efectivo: number; tarjeta: number; transferencia: number }>
+  ventas_por_producto?: Record<string, { cantidad: number; total: number; efectivo: number; tarjeta: number; transferencia: number }>
 }
 
 // Mapa de íconos por categoría
@@ -757,10 +792,10 @@ function BanoDialog({
 }: {
   banoItem: ItemBanoLocal | null
   onSetBano: (personas: number) => void
-  onCobrar: (personas: number, metodoPago: "efectivo" | "tarjeta") => void
+  onCobrar: (personas: number, metodoPago: "efectivo" | "tarjeta" | "transferencia") => void
 }) {
   const [open, setOpen] = useState(false)
-  const [metodoPago, setMetodoPago] = useState<"efectivo" | "tarjeta">("efectivo")
+  const [metodoPago, setMetodoPago] = useState<"efectivo" | "tarjeta" | "transferencia">("efectivo")
   const personas = banoItem?.personas ?? 0
   const total = personas * 0.25
 
@@ -842,22 +877,30 @@ function BanoDialog({
 
             <div className="w-full space-y-3">
               <Label className="text-sm font-medium">Método de pago</Label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-2">
                 <Button
                   variant={metodoPago === "efectivo" ? "default" : "outline"}
-                  className={`h-12 text-base gap-2 ${metodoPago === "efectivo" ? "bg-green-600 hover:bg-green-700" : ""}`}
+                  className={`h-10 text-xs gap-1 ${metodoPago === "efectivo" ? "bg-green-600 hover:bg-green-700" : ""}`}
                   onClick={() => setMetodoPago("efectivo")}
                 >
-                  <Banknote className="h-5 w-5" />
+                  <Banknote className="h-3 w-3" />
                   Efectivo
                 </Button>
                 <Button
                   variant={metodoPago === "tarjeta" ? "default" : "outline"}
-                  className={`h-12 text-base gap-2 ${metodoPago === "tarjeta" ? "bg-blue-600 hover:bg-blue-700" : ""}`}
+                  className={`h-10 text-xs gap-1 ${metodoPago === "tarjeta" ? "bg-blue-600 hover:bg-blue-700" : ""}`}
                   onClick={() => setMetodoPago("tarjeta")}
                 >
-                  <CreditCard className="h-5 w-5" />
+                  <CreditCard className="h-3 w-3" />
                   Tarjeta
+                </Button>
+                <Button
+                  variant={metodoPago === "transferencia" ? "default" : "outline"}
+                  className={`h-10 text-xs gap-1 ${metodoPago === "transferencia" ? "bg-purple-600 hover:bg-purple-700" : ""}`}
+                  onClick={() => setMetodoPago("transferencia")}
+                >
+                  <Landmark className="h-3 w-3" />
+                  Transferencia
                 </Button>
               </div>
             </div>
@@ -879,8 +922,8 @@ function BanoDialog({
             disabled={personas === 0}
             size="lg"
           >
-            {metodoPago === "efectivo" ? <Banknote className="h-4 w-4" /> : <CreditCard className="h-4 w-4" />}
-            Cobrar ${total.toFixed(2)}
+            {metodoPago === "efectivo" ? <Banknote className="h-4 w-4" /> : metodoPago === "tarjeta" ? <CreditCard className="h-4 w-4" /> : <Landmark className="h-4 w-4" />}
+            Cobrar ${total.toFixed(2)} ({metodoPago === "efectivo" ? "Efectivo" : metodoPago === "tarjeta" ? "Tarjeta" : "Transferencia"})
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -888,8 +931,7 @@ function BanoDialog({
   )
 }
 
-// ─── Dialog: Hotel (con selector de pago integrado) ───────────────────────
-// ─── Dialog: Hotel (con selector de pago integrado) ───────────────────────
+// ─── Dialog: Hotel (con selector de pago integrado y +11% en tarjeta) ─────
 
 function HotelDialog({
   hotelItem,
@@ -898,12 +940,12 @@ function HotelDialog({
 }: {
   hotelItem: ItemHotelLocal | null
   onSetHotel: (item: ItemHotelLocal | null) => void
-  onCobrar: (habitacion: string, monto: number, metodoPago: "efectivo" | "tarjeta") => void
+  onCobrar: (habitacion: string, monto: number, metodoPago: "efectivo" | "tarjeta" | "transferencia") => void
 }) {
   const [open, setOpen] = useState(false)
   const [habitacion, setHabitacion] = useState(hotelItem?.habitacion ?? "")
   const [monto, setMonto] = useState(hotelItem?.monto?.toString() ?? "")
-  const [metodoPago, setMetodoPago] = useState<"efectivo" | "tarjeta">("efectivo")
+  const [metodoPago, setMetodoPago] = useState<"efectivo" | "tarjeta" | "transferencia">("efectivo")
 
   const handleOpen = (isOpen: boolean) => {
     if (isOpen) {
@@ -914,10 +956,10 @@ function HotelDialog({
   }
 
   const montoNum = parseFloat(monto) || 0
+  const montoConRecargo = metodoPago === "tarjeta" ? montoNum * 1.11 : montoNum
 
   const handleHabitacionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
-    // Solo permitir números del 1 al 7
     if (value === "") {
       setHabitacion("")
     } else {
@@ -930,7 +972,7 @@ function HotelDialog({
 
   const handleCobrar = () => {
     if (habitacion && montoNum > 0) {
-      onCobrar(habitacion, montoNum, metodoPago)
+      onCobrar(habitacion, montoConRecargo, metodoPago)
       setOpen(false)
     }
   }
@@ -961,6 +1003,7 @@ function HotelDialog({
           </div>
           <DialogDescription>
             Registra el cobro de una habitación. Selecciona el número de habitación (1-7) y el monto a cobrar.
+            {metodoPago === "tarjeta" && " (Tarjeta tiene +11% de recargo)"}
           </DialogDescription>
         </DialogHeader>
         <div className="py-4 space-y-4">
@@ -991,36 +1034,57 @@ function HotelDialog({
             />
           </div>
 
+          <div className="w-full space-y-3">
+            <Label className="text-sm font-medium">Método de pago</Label>
+            <div className="grid grid-cols-3 gap-2">
+              <Button
+                variant={metodoPago === "efectivo" ? "default" : "outline"}
+                className={`h-10 text-xs gap-1 ${metodoPago === "efectivo" ? "bg-green-600 hover:bg-green-700" : ""}`}
+                onClick={() => setMetodoPago("efectivo")}
+              >
+                <Banknote className="h-3 w-3" />
+                Efectivo
+              </Button>
+              <Button
+                variant={metodoPago === "tarjeta" ? "default" : "outline"}
+                className={`h-10 text-xs gap-1 ${metodoPago === "tarjeta" ? "bg-blue-600 hover:bg-blue-700" : ""}`}
+                onClick={() => setMetodoPago("tarjeta")}
+              >
+                <CreditCard className="h-3 w-3" />
+                Tarjeta +11%
+              </Button>
+              <Button
+                variant={metodoPago === "transferencia" ? "default" : "outline"}
+                className={`h-10 text-xs gap-1 ${metodoPago === "transferencia" ? "bg-purple-600 hover:bg-purple-700" : ""}`}
+                onClick={() => setMetodoPago("transferencia")}
+              >
+                <Landmark className="h-3 w-3" />
+                Transferencia
+              </Button>
+            </div>
+          </div>
+
           {habitacion && montoNum > 0 && (
             <>
               <div className="w-full rounded-lg bg-muted/50 p-4 text-center">
-                <p className="text-sm text-muted-foreground">Total habitación {habitacion}</p>
-                <p className="text-3xl font-bold text-foreground">
-                  ${montoNum.toFixed(2)}
+                <p className="text-sm text-muted-foreground">
+                  {metodoPago === "tarjeta" ? `Total habitación ${habitacion} (con +11%)` : `Total habitación ${habitacion}`}
                 </p>
+                <p className="text-3xl font-bold text-foreground">
+                  ${montoConRecargo.toFixed(2)}
+                </p>
+                {metodoPago === "tarjeta" && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    (Base: ${montoNum.toFixed(2)} + 11% = ${(montoNum * 0.11).toFixed(2)})
+                  </p>
+                )}
               </div>
 
-              <div className="space-y-3">
-                <Label className="text-sm font-medium">Método de pago</Label>
-                <div className="grid grid-cols-2 gap-3">
-                  <Button
-                    variant={metodoPago === "efectivo" ? "default" : "outline"}
-                    className={`h-12 text-base gap-2 ${metodoPago === "efectivo" ? "bg-green-600 hover:bg-green-700" : ""}`}
-                    onClick={() => setMetodoPago("efectivo")}
-                  >
-                    <Banknote className="h-5 w-5" />
-                    Efectivo
-                  </Button>
-                  <Button
-                    variant={metodoPago === "tarjeta" ? "default" : "outline"}
-                    className={`h-12 text-base gap-2 ${metodoPago === "tarjeta" ? "bg-blue-600 hover:bg-blue-700" : ""}`}
-                    onClick={() => setMetodoPago("tarjeta")}
-                  >
-                    <CreditCard className="h-5 w-5" />
-                    Tarjeta
-                  </Button>
-                </div>
-              </div>
+              {metodoPago !== "efectivo" && (
+                <Badge variant="secondary" className="w-full justify-center py-2">
+                  No suma a caja
+                </Badge>
+              )}
             </>
           )}
         </div>
@@ -1040,8 +1104,8 @@ function HotelDialog({
             disabled={!habitacion || montoNum <= 0 || parseInt(habitacion) < 1 || parseInt(habitacion) > 7}
             size="lg"
           >
-            {metodoPago === "efectivo" ? <Banknote className="h-4 w-4" /> : <CreditCard className="h-4 w-4" />}
-            Cobrar ${montoNum.toFixed(2)}
+            {metodoPago === "efectivo" ? <Banknote className="h-4 w-4" /> : metodoPago === "tarjeta" ? <CreditCard className="h-4 w-4" /> : <Landmark className="h-4 w-4" />}
+            Cobrar ${montoConRecargo.toFixed(2)} ({metodoPago === "efectivo" ? "Efectivo" : metodoPago === "tarjeta" ? "Tarjeta +11%" : "Transferencia"})
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1055,35 +1119,44 @@ function MetodoPagoSelectorMejorado({
   metodo,
   onChange
 }: {
-  metodo: "efectivo" | "tarjeta"
-  onChange: (m: "efectivo" | "tarjeta") => void
+  metodo: "efectivo" | "tarjeta" | "transferencia"
+  onChange: (m: "efectivo" | "tarjeta" | "transferencia") => void
 }) {
   return (
     <div className="space-y-2">
       <Label className="text-base font-medium">Método de pago</Label>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-2">
         <Button
           variant={metodo === "efectivo" ? "default" : "outline"}
-          className={`h-14 text-lg gap-3 w-full ${metodo === "efectivo" ? "bg-green-600 hover:bg-green-700" : "border-2"}`}
+          className={`h-12 text-sm gap-2 w-full ${metodo === "efectivo" ? "bg-green-600 hover:bg-green-700" : "border-2"}`}
           onClick={() => onChange("efectivo")}
           size="lg"
         >
-          <Banknote className="h-6 w-6" />
+          <Banknote className="h-4 w-4" />
           <span className="font-semibold">Efectivo</span>
         </Button>
         <Button
           variant={metodo === "tarjeta" ? "default" : "outline"}
-          className={`h-14 text-lg gap-3 w-full ${metodo === "tarjeta" ? "bg-blue-600 hover:bg-blue-700" : "border-2"}`}
+          className={`h-12 text-sm gap-2 w-full ${metodo === "tarjeta" ? "bg-blue-600 hover:bg-blue-700" : "border-2"}`}
           onClick={() => onChange("tarjeta")}
           size="lg"
         >
-          <CreditCard className="h-6 w-6" />
+          <CreditCard className="h-4 w-4" />
           <span className="font-semibold">Tarjeta</span>
         </Button>
+        <Button
+          variant={metodo === "transferencia" ? "default" : "outline"}
+          className={`h-12 text-sm gap-2 w-full ${metodo === "transferencia" ? "bg-purple-600 hover:bg-purple-700" : "border-2"}`}
+          onClick={() => onChange("transferencia")}
+          size="lg"
+        >
+          <Landmark className="h-4 w-4" />
+          <span className="font-semibold">Transferencia</span>
+        </Button>
       </div>
-      {metodo === "tarjeta" && (
-        <Badge variant="secondary" className="mt-2 text-sm py-1 px-3">
-          No suma a caja
+      {(metodo === "tarjeta" || metodo === "transferencia") && (
+        <Badge variant="secondary" className="mt-2 text-sm py-1 px-3 w-full justify-center">
+          {metodo === "tarjeta" ? "No suma a caja (solo efectivo suma)" : "Transferencia - No suma a caja"}
         </Badge>
       )}
     </div>
@@ -1114,7 +1187,7 @@ export function ServicesPanel() {
     { refreshInterval: 30000 }
   )
 
-  // SWR para reporte diario
+  // SWR para reporte del día actual (tarjetas de resumen rápido)
   const { data: reporte, mutate: mutateReporte } = useSWR(
     "reporte-ventas",
     () => obtenerReporteDiarioVentas(),
@@ -1123,7 +1196,7 @@ export function ServicesPanel() {
 
   // Estado del carrito
   const [carrito, setCarrito] = useState<ItemCarrito[]>([])
-  const [metodoPago, setMetodoPago] = useState<"efectivo" | "tarjeta">("efectivo")
+  const [metodoPago, setMetodoPago] = useState<"efectivo" | "tarjeta" | "transferencia">("efectivo")
 
   // Estados para servicios especiales
   const [banoItem, setBanoItem] = useState<ItemBanoLocal | null>(null)
@@ -1135,6 +1208,12 @@ export function ServicesPanel() {
 
   // Estado para filtro de fecha
   const [fechaFiltro, setFechaFiltro] = useState<Date | null>(new Date())
+
+  // Estado para reporte
+  const [tipoReporte, setTipoReporte] = useState<"dia" | "mes">("dia")
+  const [fechaReporte, setFechaReporte] = useState<Date>(new Date())
+  const [reporteData, setReporteData] = useState<ReporteDesglose | null>(null)
+  const [cargandoReporte, setCargandoReporte] = useState(false)
 
   const facturaRef = useRef<HTMLDivElement>(null)
 
@@ -1192,7 +1271,7 @@ export function ServicesPanel() {
 
   // ── Funciones para servicios especiales ─────────────────────────────────
 
-  const handleCobrarBano = async (personas: number, metodoPago: "efectivo" | "tarjeta") => {
+  const handleCobrarBano = async (personas: number, metodoPago: "efectivo" | "tarjeta" | "transferencia") => {
     if (personas === 0) return
 
     setProcesando(true)
@@ -1209,7 +1288,7 @@ export function ServicesPanel() {
       toast.success("Cobro de baño registrado", {
         id: toastId,
         icon: <CheckCircle className="h-4 w-4" />,
-        description: `Total: $${(personas * 0.25).toFixed(2)}`,
+        description: `Total: $${(personas * 0.25).toFixed(2)} - ${metodoPago === "efectivo" ? "Efectivo" : metodoPago === "tarjeta" ? "Tarjeta" : "Transferencia"}`,
         action: {
           label: "Imprimir",
           onClick: () => handleImprimir(ventaCreada)
@@ -1234,7 +1313,7 @@ export function ServicesPanel() {
     }
   }
 
-  const handleCobrarHotel = async (habitacion: string, monto: number, metodoPago: "efectivo" | "tarjeta") => {
+  const handleCobrarHotel = async (habitacion: string, monto: number, metodoPago: "efectivo" | "tarjeta" | "transferencia") => {
     setProcesando(true)
     const toastId = toast.loading("Procesando cobro de hotel...")
 
@@ -1250,7 +1329,7 @@ export function ServicesPanel() {
       toast.success("Cobro de hotel registrado", {
         id: toastId,
         icon: <CheckCircle className="h-4 w-4" />,
-        description: `Habitación ${habitacion}: $${monto.toFixed(2)}`,
+        description: `Habitación ${habitacion}: $${monto.toFixed(2)} - ${metodoPago === "efectivo" ? "Efectivo" : metodoPago === "tarjeta" ? "Tarjeta" : "Transferencia"}`,
         action: {
           label: "Imprimir",
           onClick: () => handleImprimir(ventaCreada)
@@ -1279,37 +1358,25 @@ export function ServicesPanel() {
 
   const procesarVentaEfectivo = async () => {
     if (carrito.length === 0) return
-
     setProcesando(true)
     const toastId = toast.loading("Procesando venta...")
-
     try {
       const items = carrito.map((item) => ({
         producto_id: item.producto.id,
         cantidad: item.cantidad
       }))
-
       const ventaCreada = await crearVenta(items, "efectivo")
-
       toast.success("Venta registrada exitosamente", {
         id: toastId,
         icon: <CheckCircle className="h-4 w-4" />,
         description: "Pago en efectivo procesado",
-        action: {
-          label: "Imprimir",
-          onClick: () => handleImprimir(ventaCreada)
-        },
+        action: { label: "Imprimir", onClick: () => handleImprimir(ventaCreada) },
       })
-
       setCarrito([])
       setVentaActual(ventaCreada)
       setTicketOpen(true)
-
-      mutateProductos()
-      mutateVentas()
-      mutateReporte()
+      mutateProductos(); mutateVentas(); mutateReporte()
       await refrescarEstado()
-
     } catch (error) {
       toast.error("Error al procesar venta", {
         id: toastId,
@@ -1323,37 +1390,25 @@ export function ServicesPanel() {
 
   const procesarVentaTarjeta = async () => {
     if (carrito.length === 0) return
-
     setProcesando(true)
     const toastId = toast.loading("Procesando venta con tarjeta...")
-
     try {
       const items = carrito.map((item) => ({
         producto_id: item.producto.id,
         cantidad: item.cantidad
       }))
-
       const ventaCreada = await crearVenta(items, "tarjeta")
-
       toast.success("Venta registrada exitosamente", {
         id: toastId,
         icon: <CheckCircle className="h-4 w-4" />,
         description: "Pago con tarjeta procesado",
-        action: {
-          label: "Imprimir",
-          onClick: () => handleImprimir(ventaCreada)
-        },
+        action: { label: "Imprimir", onClick: () => handleImprimir(ventaCreada) },
       })
-
       setCarrito([])
       setVentaActual(ventaCreada)
       setTicketOpen(true)
-
-      mutateProductos()
-      mutateVentas()
-      mutateReporte()
+      mutateProductos(); mutateVentas(); mutateReporte()
       await refrescarEstado()
-
     } catch (error) {
       toast.error("Error al procesar venta", {
         id: toastId,
@@ -1365,7 +1420,98 @@ export function ServicesPanel() {
     }
   }
 
-  // ── Imprimir ────────────────────────────────────────────────────────────
+  const procesarVentaTransferencia = async () => {
+    if (carrito.length === 0) return
+    setProcesando(true)
+    const toastId = toast.loading("Procesando venta con transferencia...")
+    try {
+      const items = carrito.map((item) => ({
+        producto_id: item.producto.id,
+        cantidad: item.cantidad
+      }))
+      const ventaCreada = await crearVenta(items, "transferencia")
+      toast.success("Venta registrada exitosamente", {
+        id: toastId,
+        icon: <CheckCircle className="h-4 w-4" />,
+        description: "Pago con transferencia procesado",
+        action: { label: "Imprimir", onClick: () => handleImprimir(ventaCreada) },
+      })
+      setCarrito([])
+      setVentaActual(ventaCreada)
+      setTicketOpen(true)
+      mutateProductos(); mutateVentas(); mutateReporte()
+      await refrescarEstado()
+    } catch (error) {
+      toast.error("Error al procesar venta", {
+        id: toastId,
+        description: error instanceof Error ? error.message : "Error desconocido",
+        icon: <XCircle className="h-4 w-4" />,
+      })
+    } finally {
+      setProcesando(false)
+    }
+  }
+
+  // ── Cargar reporte ──────────────────────────────────────────────────────
+
+  const cargarReporte = async () => {
+    setCargandoReporte(true)
+    try {
+      let url = `${BASE_URL}/api/ventas-servicios/reporte/diario?`
+
+      if (tipoReporte === "dia") {
+        const fechaStr = format(fechaReporte, "yyyy-MM-dd")
+        url += `fecha=${fechaStr}`
+      } else {
+        const primerDia = new Date(fechaReporte.getFullYear(), fechaReporte.getMonth(), 1)
+        const ultimoDia = new Date(fechaReporte.getFullYear(), fechaReporte.getMonth() + 1, 0)
+        url += `fecha_inicio=${format(primerDia, "yyyy-MM-dd")}&fecha_fin=${format(ultimoDia, "yyyy-MM-dd")}`
+      }
+
+      console.log("Consultando reporte:", url)
+      const response = await fetch(url)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error("Error response:", errorText)
+        throw new Error(`Error al cargar reporte: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      const reporteTransformado: ReporteDesglose = {
+        total_ventas: data.total_ventas || 0,
+        total_efectivo: data.total_efectivo || 0,
+        total_tarjeta: data.total_tarjeta || 0,
+        total_transferencia: data.total_transferencia || 0,
+        cantidad_tickets: data.cantidad_tickets || 0,
+        total_productos_vendidos: data.total_productos_vendidos || 0,
+        ventas_por_categoria: {
+          bebidas: data.ventas_por_categoria?.bebidas || 0,
+          snacks: data.ventas_por_categoria?.snacks || 0,
+          otros: data.ventas_por_categoria?.otros || 0,
+          bano: data.ventas_por_categoria?.bano || 0,
+          hotel: data.ventas_por_categoria?.hotel || 0,
+        },
+        ventas_por_habitacion: data.ventas_por_habitacion || {},
+        ventas_por_producto: data.ventas_por_producto || {},
+      }
+
+      setReporteData(reporteTransformado)
+    } catch (error) {
+      console.error("Error cargando reporte:", error)
+      toast.error("Error al cargar el reporte")
+    } finally {
+      setCargandoReporte(false)
+    }
+  }
+
+  // Cargar reporte cuando cambia fecha o tipo
+  useEffect(() => {
+    cargarReporte()
+  }, [fechaReporte, tipoReporte])
+
+  // ── Imprimir ticket de venta individual ─────────────────────────────────
 
   const handleImprimir = (venta: VentaRegistrada) => {
     const printWindow = window.open("", "", "width=72mm,height=600")
@@ -1379,14 +1525,14 @@ export function ServicesPanel() {
         <meta charset="UTF-8">
         <title>Ticket de Venta #${String(venta.id).padStart(4, "0")}</title>
         <style>
-          * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Courier New', monospace; }
-          body { width: 72mm; margin: 0; padding: 2mm; font-size: 11px; line-height: 1.2; }
+          * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Courier New', monospace; font-weight: bold; color: #000; }
+          body { width: 72mm; margin: 0; padding: 2mm; font-size: 11px; line-height: 1.2; background: white; }
           @media print { @page { size: 72mm auto; margin: 0; } body { width: 72mm !important; margin: 0 !important; padding: 2mm !important; } }
           .center { text-align: center; } .bold { font-weight: bold; }
-          .separator { border: none; border-top: 1px dashed #000; margin: 3px 0; }
+          .separator { border: none; border-top: 1px solid #000; margin: 3px 0; }
           .row { display: flex; justify-content: space-between; margin: 2px 0; }
           table { width: 100%; border-collapse: collapse; margin: 3px 0; }
-          th, td { text-align: left; padding: 2px 0; font-size: 10px; }
+          th, td { text-align: left; padding: 2px 0; font-size: 10px; font-weight: bold; }
           th:last-child, td:last-child { text-align: right; }
           th { border-bottom: 1px solid #000; }
           .total { font-size: 14px; font-weight: bold; margin: 5px 0; }
@@ -1404,12 +1550,7 @@ export function ServicesPanel() {
         <div class="row"><span>Pago:</span><span class="bold">${(venta.metodo_pago || "efectivo").toUpperCase()}</span></div>
         <div class="separator"></div>
         <table>
-          <thead><tr>
-            <th>Descripción</th>
-            <th style="text-align:center">Cant</th>
-            <th style="text-align:right">P.U.</th>
-            <th style="text-align:right">Subt.</th>
-          </tr></thead>
+          <thead><tr><th>Descripcion</th><th style="text-align:center">Cant</th><th style="text-align:right">P.U.</th><th style="text-align:right">Subt.</th></tr></thead>
           <tbody>
             ${venta.items.map((item) => `
               <tr>
@@ -1430,6 +1571,144 @@ export function ServicesPanel() {
         </div>
       </body></html>
     `)
+    printWindow.document.close()
+    setTimeout(() => {
+      printWindow.print()
+      setTimeout(() => {
+        if (!printWindow.closed) printWindow.close()
+      }, 1000)
+    }, 500)
+  }
+
+  // ── NUEVA FUNCIÓN: Imprimir reporte completo (día o mes) ─────────────────
+
+  const handleImprimirReporte = () => {
+    if (!reporteData) {
+      toast.error("No hay datos de reporte para imprimir")
+      return
+    }
+
+    const printWindow = window.open("", "", "width=80mm,height=600")
+    if (!printWindow) {
+      toast.error("No se pudo abrir ventana de impresión")
+      return
+    }
+
+    const titulo = tipoReporte === "dia" 
+      ? `REPORTE DIARIO - ${format(fechaReporte, "dd/MM/yyyy")}`
+      : `REPORTE MENSUAL - ${format(fechaReporte, "MMMM yyyy", { locale: es })}`
+
+    const fechaInicio = tipoReporte === "dia"
+      ? format(fechaReporte, "dd/MM/yyyy")
+      : format(new Date(fechaReporte.getFullYear(), fechaReporte.getMonth(), 1), "dd/MM/yyyy")
+    
+    const fechaFin = tipoReporte === "dia"
+      ? format(fechaReporte, "dd/MM/yyyy")
+      : format(new Date(fechaReporte.getFullYear(), fechaReporte.getMonth() + 1, 0), "dd/MM/yyyy")
+
+    // Generar tabla de productos más vendidos
+    const topProductos = reporteData.ventas_por_producto
+      ? Object.entries(reporteData.ventas_por_producto)
+          .sort((a, b) => b[1].total - a[1].total)
+          .slice(0, 10)
+      : []
+
+    // Generar tabla de ventas por habitación
+    const ventasHabitacion = reporteData.ventas_por_habitacion
+      ? Object.entries(reporteData.ventas_por_habitacion)
+          .sort((a, b) => b[1].total - a[1].total)
+      : []
+
+    printWindow.document.write(`
+      <!DOCTYPE html><html><head>
+        <meta charset="UTF-8">
+        <title>${titulo}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Courier New', monospace; font-weight: bold; color: #000; }
+          body { width: 80mm; margin: 0; padding: 3mm; font-size: 10px; line-height: 1.3; background: white; }
+          @media print { @page { size: 80mm auto; margin: 0; } body { width: 80mm !important; margin: 0 !important; padding: 3mm !important; } }
+          .center { text-align: center; }
+          .bold { font-weight: bold; }
+          .separator { border: none; border-top: 1px dashed #000; margin: 4px 0; }
+          .separator-solid { border: none; border-top: 1px solid #000; margin: 4px 0; }
+          .row { display: flex; justify-content: space-between; margin: 3px 0; }
+          .row-space { display: flex; justify-content: space-between; margin: 5px 0; }
+          table { width: 100%; border-collapse: collapse; margin: 5px 0; }
+          th, td { text-align: left; padding: 3px 0; font-size: 9px; }
+          th:last-child, td:last-child { text-align: right; }
+          th { border-bottom: 1px solid #000; }
+          .total-grande { font-size: 14px; font-weight: bold; margin: 5px 0; }
+          .categoria { font-size: 10px; margin-top: 8px; margin-bottom: 3px; }
+          .subrayado { border-bottom: 1px dotted #000; }
+          .resumen-card { margin: 5px 0; padding: 5px; border: 1px solid #000; border-radius: 5px; }
+        </style>
+      </head><body>
+        <div class="center bold" style="font-size:14px">${HOTEL_INFO.nombre}</div>
+        <div class="center" style="font-size:9px">${HOTEL_INFO.direccion}</div>
+        <div class="center" style="font-size:9px">Tel: ${HOTEL_INFO.telefono}</div>
+        <div class="center" style="font-size:9px">RUC: ${HOTEL_INFO.ruc}</div>
+        <div class="separator-solid"></div>
+        <div class="center bold" style="font-size:12px">${titulo}</div>
+        <div class="row"><span>Periodo:</span><span>${fechaInicio} - ${fechaFin}</span></div>
+        <div class="row"><span>Fecha emisión:</span><span>${new Date().toLocaleString("es-EC")}</span></div>
+        <div class="separator"></div>
+        
+        <!-- RESUMEN GENERAL -->
+        <div class="center bold">RESUMEN GENERAL</div>
+        <div class="resumen-card">
+          <div class="row"><span> Total Ventas:</span><span>$${reporteData.total_ventas.toFixed(2)}</span></div>
+          <div class="row"><span> Efectivo:</span><span>$${reporteData.total_efectivo.toFixed(2)}</span></div>
+          <div class="row"><span> Tarjeta:</span><span>$${reporteData.total_tarjeta.toFixed(2)}</span></div>
+          <div class="row"><span> Transferencia:</span><span>$${reporteData.total_transferencia.toFixed(2)}</span></div>
+          <div class="separator"></div>
+          <div class="row"><span> Tickets:</span><span>${reporteData.cantidad_tickets}</span></div>
+          <div class="row"><span> Productos vendidos:</span><span>${reporteData.total_productos_vendidos || 0}</span></div>
+        </div>
+
+        <div class="separator"></div>
+        
+        <!-- VENTAS POR CATEGORÍA -->
+        <div class="center bold">VENTAS POR CATEGORÍA</div>
+        <div class="row"><span> Bebidas:</span><span>$${(reporteData.ventas_por_categoria?.bebidas || 0).toFixed(2)}</span></div>
+        <div class="row"><span> Snacks:</span><span>$${(reporteData.ventas_por_categoria?.snacks || 0).toFixed(2)}</span></div>
+        <div class="row"><span> Otros:</span><span>$${(reporteData.ventas_por_categoria?.otros || 0).toFixed(2)}</span></div>
+        <div class="row"><span> Baño:</span><span>$${(reporteData.ventas_por_categoria?.bano || 0).toFixed(2)}</span></div>
+        <div class="row"><span> Hotel:</span><span>$${(reporteData.ventas_por_categoria?.hotel || 0).toFixed(2)}</span></div>
+
+        ${ventasHabitacion.length > 0 ? `
+          <div class="separator"></div>
+          <div class="center bold">VENTAS POR HABITACIÓN</div>
+          ${ventasHabitacion.map(([habitacion, data]) => `
+            <div class="row"><span> Habitación ${habitacion}:</span><span>$${data.total.toFixed(2)} (${data.cantidad} ticket${data.cantidad !== 1 ? "s" : ""})</span></div>
+          `).join("")}
+        ` : ""}
+
+        ${topProductos.length > 0 ? `
+          <div class="separator"></div>
+          <div class="center bold">TOP PRODUCTOS</div>
+          <table>
+            <thead><tr><th>Producto</th><th>Cant</th><th>Total</th></tr></thead>
+            <tbody>
+              ${topProductos.map(([nombre, data]) => `
+                <tr>
+                  <td>${nombre.length > 20 ? nombre.substring(0, 18) + "..." : nombre}</td>
+                  <td style="text-align:center">${data.cantidad}</td>
+                  <td>$${data.total.toFixed(2)}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        ` : ""}
+
+        <div class="separator-solid"></div>
+        <div class="center" style="font-size:9px;margin-top:5px">
+          <div>Reporte generado automáticamente</div>
+          <div>${new Date().toLocaleString("es-EC")}</div>
+          <div>--- Fin del reporte ---</div>
+        </div>
+      </body></html>
+    `)
+
     printWindow.document.close()
     setTimeout(() => {
       printWindow.print()
@@ -1479,9 +1758,8 @@ export function ServicesPanel() {
 
   return (
     <div className="space-y-6">
-      {/* Layout de 2 columnas */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Columna izquierda: Búsqueda y servicios en un solo cuadro */}
+        {/* Columna izquierda */}
         <div className="space-y-6">
           <Card>
             <CardHeader>
@@ -1494,7 +1772,6 @@ export function ServicesPanel() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Buscador integrado */}
               {productos && (
                 <BuscadorProductos
                   productos={productos}
@@ -1503,7 +1780,6 @@ export function ServicesPanel() {
                 />
               )}
 
-              {/* Grid de servicios adicionales - AHORA CON 5 COLUMNAS */}
               <div className="grid grid-cols-5 gap-3">
                 <CatalogoDialog
                   categoria="bebidas"
@@ -1543,7 +1819,6 @@ export function ServicesPanel() {
             </CardContent>
           </Card>
 
-          {/* Resumen del día */}
           <div className="grid grid-cols-3 gap-4">
             <Card>
               <CardContent className="pt-4">
@@ -1566,7 +1841,7 @@ export function ServicesPanel() {
           </div>
         </div>
 
-        {/* Columna derecha: Factura - SIN SCROLL PARA 3+ PRODUCTOS */}
+        {/* Columna derecha: Factura */}
         <div className="lg:sticky lg:top-4 lg:self-start">
           <Card className="border-2 border-primary/20 shadow-lg">
             <CardHeader className="bg-primary/5 border-b">
@@ -1603,7 +1878,6 @@ export function ServicesPanel() {
                   </p>
                 </div>
               ) : (
-                // ELIMINADO EL max-h-[500px] overflow-y-auto para que NO haya scroll
                 <div className="space-y-4">
                   {/* Bebidas */}
                   {bebidasEnCarrito.length > 0 && (
@@ -1619,30 +1893,11 @@ export function ServicesPanel() {
                             <p className="text-xs text-muted-foreground">${item.producto.precio.toFixed(2)} c/u</p>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => quitarDelCarrito(item.producto.id)}>
-                              <Minus className="h-3 w-3" />
-                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => quitarDelCarrito(item.producto.id)}><Minus className="h-3 w-3" /></Button>
                             <span className="w-6 text-center font-medium text-sm">{item.cantidad}</span>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => agregarAlCarrito(item.producto)}
-                              disabled={item.cantidad >= item.producto.stock}
-                            >
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                            <span className="w-16 text-right font-medium text-sm">
-                              ${(item.producto.precio * item.cantidad).toFixed(2)}
-                            </span>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 text-destructive hover:text-destructive"
-                              onClick={() => eliminarDelCarrito(item.producto.id)}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => agregarAlCarrito(item.producto)} disabled={item.cantidad >= item.producto.stock}><Plus className="h-3 w-3" /></Button>
+                            <span className="w-16 text-right font-medium text-sm">${(item.producto.precio * item.cantidad).toFixed(2)}</span>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => eliminarDelCarrito(item.producto.id)}><Trash2 className="h-3 w-3" /></Button>
                           </div>
                         </div>
                       ))}
@@ -1663,30 +1918,11 @@ export function ServicesPanel() {
                             <p className="text-xs text-muted-foreground">${item.producto.precio.toFixed(2)} c/u</p>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => quitarDelCarrito(item.producto.id)}>
-                              <Minus className="h-3 w-3" />
-                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => quitarDelCarrito(item.producto.id)}><Minus className="h-3 w-3" /></Button>
                             <span className="w-6 text-center font-medium text-sm">{item.cantidad}</span>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => agregarAlCarrito(item.producto)}
-                              disabled={item.cantidad >= item.producto.stock}
-                            >
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                            <span className="w-16 text-right font-medium text-sm">
-                              ${(item.producto.precio * item.cantidad).toFixed(2)}
-                            </span>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 text-destructive hover:text-destructive"
-                              onClick={() => eliminarDelCarrito(item.producto.id)}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => agregarAlCarrito(item.producto)} disabled={item.cantidad >= item.producto.stock}><Plus className="h-3 w-3" /></Button>
+                            <span className="w-16 text-right font-medium text-sm">${(item.producto.precio * item.cantidad).toFixed(2)}</span>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => eliminarDelCarrito(item.producto.id)}><Trash2 className="h-3 w-3" /></Button>
                           </div>
                         </div>
                       ))}
@@ -1707,30 +1943,11 @@ export function ServicesPanel() {
                             <p className="text-xs text-muted-foreground">${item.producto.precio.toFixed(2)} c/u</p>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => quitarDelCarrito(item.producto.id)}>
-                              <Minus className="h-3 w-3" />
-                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => quitarDelCarrito(item.producto.id)}><Minus className="h-3 w-3" /></Button>
                             <span className="w-6 text-center font-medium text-sm">{item.cantidad}</span>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => agregarAlCarrito(item.producto)}
-                              disabled={item.cantidad >= item.producto.stock}
-                            >
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                            <span className="w-16 text-right font-medium text-sm">
-                              ${(item.producto.precio * item.cantidad).toFixed(2)}
-                            </span>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 text-destructive hover:text-destructive"
-                              onClick={() => eliminarDelCarrito(item.producto.id)}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => agregarAlCarrito(item.producto)} disabled={item.cantidad >= item.producto.stock}><Plus className="h-3 w-3" /></Button>
+                            <span className="w-16 text-right font-medium text-sm">${(item.producto.precio * item.cantidad).toFixed(2)}</span>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => eliminarDelCarrito(item.producto.id)}><Trash2 className="h-3 w-3" /></Button>
                           </div>
                         </div>
                       ))}
@@ -1741,9 +1958,7 @@ export function ServicesPanel() {
                   <div className="border-t-2 pt-4 mt-2 space-y-4">
                     <div className="flex justify-between items-center">
                       <span className="text-base font-bold">TOTAL:</span>
-                      <span className="text-2xl font-bold text-primary">
-                        ${totalCarrito.toFixed(2)}
-                      </span>
+                      <span className="text-2xl font-bold text-primary">${totalCarrito.toFixed(2)}</span>
                     </div>
 
                     <MetodoPagoSelectorMejorado
@@ -1751,24 +1966,20 @@ export function ServicesPanel() {
                       onChange={setMetodoPago}
                     />
 
-                    {/* Botones de cobro */}
                     {metodoPago === "efectivo" ? (
-                      <Button
-                        className="w-full gap-2 h-14 text-lg bg-green-600 hover:bg-green-700"
-                        onClick={procesarVentaEfectivo}
-                        disabled={procesando || totalCarrito === 0}
-                      >
+                      <Button className="w-full gap-2 h-14 text-lg bg-green-600 hover:bg-green-700" onClick={procesarVentaEfectivo} disabled={procesando || totalCarrito === 0}>
                         <Banknote className="h-6 w-6" />
                         Cobrar ${totalCarrito.toFixed(2)} (Efectivo)
                       </Button>
-                    ) : (
-                      <Button
-                        className="w-full gap-2 h-14 text-lg bg-blue-600 hover:bg-blue-700"
-                        onClick={procesarVentaTarjeta}
-                        disabled={procesando || totalCarrito === 0}
-                      >
+                    ) : metodoPago === "tarjeta" ? (
+                      <Button className="w-full gap-2 h-14 text-lg bg-blue-600 hover:bg-blue-700" onClick={procesarVentaTarjeta} disabled={procesando || totalCarrito === 0}>
                         <CreditCard className="h-6 w-6" />
                         Cobrar ${totalCarrito.toFixed(2)} (Tarjeta)
+                      </Button>
+                    ) : (
+                      <Button className="w-full gap-2 h-14 text-lg bg-purple-600 hover:bg-purple-700" onClick={procesarVentaTransferencia} disabled={procesando || totalCarrito === 0}>
+                        <Landmark className="h-6 w-6" />
+                        Cobrar ${totalCarrito.toFixed(2)} (Transferencia)
                       </Button>
                     )}
                   </div>
@@ -1779,6 +1990,221 @@ export function ServicesPanel() {
         </div>
       </div>
 
+      {/* Reporte de Ventas */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5" />
+                Reporte de Ventas
+              </CardTitle>
+              <CardDescription>
+                Desglose de ventas por categoría y método de pago
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Ver:</span>
+                <Select value={tipoReporte} onValueChange={(v) => setTipoReporte(v as "dia" | "mes")}>
+                  <SelectTrigger className="w-[110px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="dia">Día</SelectItem>
+                    <SelectItem value="mes">Mes</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="gap-2">
+                    <CalendarIcon className="h-4 w-4" />
+                    {tipoReporte === "dia"
+                      ? format(fechaReporte, "PPP", { locale: es })
+                      : format(fechaReporte, "MMMM yyyy", { locale: es })
+                    }
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="end">
+                  <Calendar
+                    mode="single"
+                    selected={fechaReporte}
+                    onSelect={(date) => date && setFechaReporte(date)}
+                    initialFocus
+                    locale={es}
+                  />
+                </PopoverContent>
+              </Popover>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={cargarReporte}
+                disabled={cargandoReporte}
+                className="gap-2"
+              >
+                <RefreshCw className={`h-4 w-4 ${cargandoReporte ? "animate-spin" : ""}`} />
+                Actualizar
+              </Button>
+
+              {/* BOTÓN PARA IMPRIMIR REPORTE */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleImprimirReporte}
+                disabled={!reporteData || cargandoReporte}
+                className="gap-2 bg-green-600 text-white hover:bg-green-700"
+              >
+                <Printer className="h-4 w-4" />
+                Imprimir Reporte
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {cargandoReporte ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <span className="ml-3 text-muted-foreground">Cargando reporte...</span>
+            </div>
+          ) : reporteData ? (
+            <div className="space-y-6">
+              {/* Resumen general */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="rounded-lg bg-primary/5 p-4 text-center">
+                  <p className="text-xs text-muted-foreground">Total Ventas</p>
+                  <p className="text-2xl font-bold text-primary">${reporteData.total_ventas.toFixed(2)}</p>
+                </div>
+                <div className="rounded-lg bg-green-500/10 p-4 text-center">
+                  <p className="text-xs text-muted-foreground">Efectivo</p>
+                  <p className="text-2xl font-bold text-green-600">${reporteData.total_efectivo.toFixed(2)}</p>
+                </div>
+                <div className="rounded-lg bg-blue-500/10 p-4 text-center">
+                  <p className="text-xs text-muted-foreground">Tarjeta</p>
+                  <p className="text-2xl font-bold text-blue-600">${reporteData.total_tarjeta.toFixed(2)}</p>
+                </div>
+                <div className="rounded-lg bg-purple-500/10 p-4 text-center">
+                  <p className="text-xs text-muted-foreground">Transferencia</p>
+                  <p className="text-2xl font-bold text-purple-600">${reporteData.total_transferencia.toFixed(2)}</p>
+                </div>
+              </div>
+
+              {/* Desglose por categorías */}
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Coffee className="h-5 w-5 text-blue-600" />
+                    <h3 className="font-semibold">Bebidas</h3>
+                  </div>
+                  <p className="text-2xl font-bold">${(reporteData.ventas_por_categoria?.bebidas || 0).toFixed(2)}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Cookie className="h-5 w-5 text-amber-600" />
+                    <h3 className="font-semibold">Snacks</h3>
+                  </div>
+                  <p className="text-2xl font-bold">${(reporteData.ventas_por_categoria?.snacks || 0).toFixed(2)}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Sparkles className="h-5 w-5 text-purple-600" />
+                    <h3 className="font-semibold">Otros</h3>
+                  </div>
+                  <p className="text-2xl font-bold">${(reporteData.ventas_por_categoria?.otros || 0).toFixed(2)}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <ShowerHead className="h-5 w-5 text-teal-600" />
+                    <h3 className="font-semibold">Baño</h3>
+                  </div>
+                  <p className="text-2xl font-bold">${(reporteData.ventas_por_categoria?.bano || 0).toFixed(2)}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <BedDouble className="h-5 w-5 text-purple-600" />
+                    <h3 className="font-semibold">Hotel</h3>
+                  </div>
+                  <p className="text-2xl font-bold">${(reporteData.ventas_por_categoria?.hotel || 0).toFixed(2)}</p>
+                </div>
+              </div>
+
+              {/* Desglose por habitación */}
+              {reporteData.ventas_por_habitacion && Object.keys(reporteData.ventas_por_habitacion).length > 0 && (
+                <div className="mt-6">
+                  <h3 className="font-semibold mb-3 flex items-center gap-2">
+                    <BedDouble className="h-4 w-4" />
+                    Ventas por Habitación
+                  </h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2">
+                    {Object.entries(reporteData.ventas_por_habitacion).map(([habitacion, data]) => (
+                      <div key={habitacion} className="rounded-lg border p-3 text-center">
+                        <p className="text-sm font-bold">Hab. {habitacion}</p>
+                        <p className="text-lg font-bold text-primary">${data.total.toFixed(2)}</p>
+                        <p className="text-xs text-muted-foreground">{data.cantidad} ticket{data.cantidad !== 1 ? "s" : ""}</p>
+                        <div className="flex justify-center gap-2 mt-1 text-xs">
+                          {data.efectivo > 0 && <span className="text-green-600">E:${data.efectivo.toFixed(2)}</span>}
+                          {data.tarjeta > 0 && <span className="text-blue-600">T:${data.tarjeta.toFixed(2)}</span>}
+                          {data.transferencia > 0 && <span className="text-purple-600">Tr:${data.transferencia.toFixed(2)}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Top productos */}
+              {reporteData.ventas_por_producto && Object.keys(reporteData.ventas_por_producto).length > 0 && (
+                <div className="mt-6">
+                  <h3 className="font-semibold mb-3 flex items-center gap-2">
+                    <Package className="h-4 w-4" />
+                    Top Productos
+                  </h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {Object.entries(reporteData.ventas_por_producto)
+                      .sort((a, b) => b[1].total - a[1].total)
+                      .slice(0, 8)
+                      .map(([nombre, data]) => (
+                        <div key={nombre} className="rounded-lg border p-3">
+                          <p className="text-sm font-medium truncate">{nombre}</p>
+                          <div className="flex justify-between mt-2">
+                            <span className="text-xs text-muted-foreground">{data.cantidad} unid.</span>
+                            <span className="text-sm font-bold">${data.total.toFixed(2)}</span>
+                          </div>
+                          <div className="flex gap-2 mt-1 text-xs">
+                            {data.efectivo > 0 && <span className="text-green-600">E:${data.efectivo.toFixed(2)}</span>}
+                            {data.tarjeta > 0 && <span className="text-blue-600">T:${data.tarjeta.toFixed(2)}</span>}
+                            {data.transferencia > 0 && <span className="text-purple-600">Tr:${data.transferencia.toFixed(2)}</span>}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Resumen de tickets */}
+              <div className="mt-4 pt-4 border-t">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Total Tickets:</span>
+                  <span className="text-lg font-bold">{reporteData.cantidad_tickets}</span>
+                </div>
+                <div className="flex justify-between items-center mt-1">
+                  <span className="text-sm text-muted-foreground">Productos Vendidos:</span>
+                  <span className="text-lg font-bold">{reporteData.total_productos_vendidos || 0}</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <AlertCircle className="h-10 w-10 text-muted-foreground/30 mb-2" />
+              <p className="text-muted-foreground">No hay datos para mostrar</p>
+              <p className="text-sm text-muted-foreground">Selecciona una fecha y haz clic en Actualizar</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Ventas recientes */}
       {ventas && ventas.length > 0 && (
         <Card>
@@ -1787,20 +2213,13 @@ export function ServicesPanel() {
               <div>
                 <CardTitle className="text-base">Ventas recientes</CardTitle>
                 <CardDescription>
-                  {fechaFiltro
-                    ? `Ventas del ${format(fechaFiltro, "PPP", { locale: es })}`
-                    : "Todas las ventas"
-                  }
+                  {fechaFiltro ? `Ventas del ${format(fechaFiltro, "PPP", { locale: es })}` : "Todas las ventas"}
                 </CardDescription>
               </div>
               <div className="flex items-center gap-2">
                 <CustomDateRangePicker onDateChange={setFechaFiltro} />
                 {fechaFiltro && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setFechaFiltro(null)}
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => setFechaFiltro(null)}>
                     Limpiar
                   </Button>
                 )}
@@ -1811,9 +2230,7 @@ export function ServicesPanel() {
             {ventasFiltradas.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 <AlertCircle className="h-10 w-10 text-muted-foreground/30 mb-2" />
-                <p className="text-muted-foreground">
-                  No hay ventas {fechaFiltro ? "en esta fecha" : "registradas"}
-                </p>
+                <p className="text-muted-foreground">No hay ventas {fechaFiltro ? "en esta fecha" : "registradas"}</p>
               </div>
             ) : (
               <Table>
@@ -1830,49 +2247,18 @@ export function ServicesPanel() {
                 <TableBody>
                   {ventasFiltradas.map((v: VentaRegistrada) => (
                     <TableRow key={v.id}>
-                      <TableCell className="font-mono text-sm">
-                        #{String(v.id).padStart(4, "0")}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {new Date(v.fecha).toLocaleTimeString("es-EC", {
-                          hour: "2-digit",
-                          minute: "2-digit"
-                        })}
-                      </TableCell>
-                      <TableCell className="text-sm truncate max-w-[200px]">
-                        {v.items.map((i) => `${i.nombre} (${i.cantidad})`).join(", ")}
-                      </TableCell>
+                      <TableCell className="font-mono text-sm">#{String(v.id).padStart(4, "0")}</TableCell>
+                      <TableCell className="text-sm">{new Date(v.fecha).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}</TableCell>
+                      <TableCell className="text-sm truncate max-w-[200px]">{v.items.map((i) => `${i.nombre} (${i.cantidad})`).join(", ")}</TableCell>
                       <TableCell className="text-center">
-                        <Badge
-                          variant={v.metodo_pago === "tarjeta" ? "secondary" : "default"}
-                          className="text-xs"
-                        >
-                          {v.metodo_pago === "tarjeta"
-                            ? <span className="flex items-center gap-1">
-                              <CreditCard className="h-3 w-3" />
-                              Tarjeta
-                            </span>
-                            : <span className="flex items-center gap-1">
-                              <Banknote className="h-3 w-3" />
-                              Efectivo
-                            </span>
-                          }
+                        <Badge variant={v.metodo_pago === "efectivo" ? "default" : v.metodo_pago === "tarjeta" ? "secondary" : "outline"} className="text-xs">
+                          {v.metodo_pago === "efectivo" ? <span className="flex items-center gap-1"><Banknote className="h-3 w-3" />Efectivo</span> : v.metodo_pago === "tarjeta" ? <span className="flex items-center gap-1"><CreditCard className="h-3 w-3" />Tarjeta</span> : <span className="flex items-center gap-1"><Landmark className="h-3 w-3" />Transferencia</span>}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-sm text-right font-medium">
-                        ${v.total.toFixed(2)}
-                      </TableCell>
+                      <TableCell className="text-sm text-right font-medium">${v.total.toFixed(2)}</TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setVentaActual(v);
-                            setTicketOpen(true)
-                          }}
-                        >
-                          <Receipt className="h-3 w-3 mr-1" />
-                          Ver
+                        <Button variant="ghost" size="sm" onClick={() => { setVentaActual(v); setTicketOpen(true) }}>
+                          <Receipt className="h-3 w-3 mr-1" />Ver
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -1890,95 +2276,41 @@ export function ServicesPanel() {
           <DialogHeader>
             <DialogTitle>Ticket de Venta</DialogTitle>
             <DialogDescription>
-              {ventaActual
-                ? `Venta #${String(ventaActual.id).padStart(4, "0")} registrada exitosamente`
-                : ""
-              }
+              {ventaActual ? `Venta #${String(ventaActual.id).padStart(4, "0")} registrada exitosamente` : ""}
             </DialogDescription>
           </DialogHeader>
           {ventaActual && (
-            <div
-              ref={facturaRef}
-              className="font-mono text-sm space-y-3 border rounded-lg p-4 bg-background"
-            >
+            <div ref={facturaRef} className="font-mono text-sm space-y-3 border rounded-lg p-4 bg-background" style={{ fontWeight: 'bold', color: 'black' }}>
               <div className="text-center border-b-2 border-dashed pb-3">
-                <p className="text-lg font-bold">{HOTEL_INFO.nombre}</p>
-                <p className="text-xs text-muted-foreground">{HOTEL_INFO.direccion}</p>
-                <p className="text-xs text-muted-foreground">Tel: {HOTEL_INFO.telefono}</p>
-                <p className="text-xs text-muted-foreground">RUC: {HOTEL_INFO.ruc}</p>
+                <p className="text-lg font-bold text-black">{HOTEL_INFO.nombre}</p>
+                <p className="text-xs text-black">{HOTEL_INFO.direccion}</p>
+                <p className="text-xs text-black">Tel: {HOTEL_INFO.telefono}</p>
+                <p className="text-xs text-black">RUC: {HOTEL_INFO.ruc}</p>
               </div>
-              <div className="text-center text-xs text-muted-foreground">
-                TICKET DE VENTA #{String(ventaActual.id).padStart(4, "0")}
-              </div>
+              <div className="text-center text-xs text-black">TICKET DE VENTA #{String(ventaActual.id).padStart(4, "0")}</div>
               <div className="border-t border-dashed my-2" />
               <div className="space-y-1">
-                <div className="flex justify-between text-sm">
-                  <span>Fecha:</span>
-                  <span>{new Date(ventaActual.fecha).toLocaleDateString("es-EC")}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span>Hora:</span>
-                  <span>
-                    {new Date(ventaActual.fecha).toLocaleTimeString("es-EC", {
-                      hour: "2-digit",
-                      minute: "2-digit"
-                    })}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span>Pago:</span>
-                  <span className="font-bold">
-                    {(ventaActual.metodo_pago || "efectivo").toUpperCase()}
-                  </span>
-                </div>
+                <div className="flex justify-between text-sm"><span className="text-black">Fecha:</span><span className="text-black">{new Date(ventaActual.fecha).toLocaleDateString("es-EC")}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-black">Hora:</span><span className="text-black">{new Date(ventaActual.fecha).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-black">Pago:</span><span className="font-bold text-black">{(ventaActual.metodo_pago || "efectivo").toUpperCase()}</span></div>
               </div>
               <div className="border-t border-dashed my-2" />
               <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left text-xs py-1">Descripción</th>
-                    <th className="text-center text-xs py-1">Cant</th>
-                    <th className="text-right text-xs py-1">P.U.</th>
-                    <th className="text-right text-xs py-1">Subt.</th>
-                  </tr>
-                </thead>
+                <thead><tr className="border-b"><th className="text-left text-xs py-1 text-black">Descripción</th><th className="text-center text-xs py-1 text-black">Cant</th><th className="text-right text-xs py-1 text-black">P.U.</th><th className="text-right text-xs py-1 text-black">Subt.</th></tr></thead>
                 <tbody>
                   {ventaActual.items.map((item, i) => (
-                    <tr key={i}>
-                      <td className="py-1">{item.nombre}</td>
-                      <td className="py-1 text-center">{item.cantidad}</td>
-                      <td className="py-1 text-right">${item.precio_unit.toFixed(2)}</td>
-                      <td className="py-1 text-right">${item.subtotal.toFixed(2)}</td>
-                    </tr>
+                    <tr key={i}><td className="py-1 text-black">{item.nombre}</td><td className="py-1 text-center text-black">{item.cantidad}</td><td className="py-1 text-right text-black">${item.precio_unit.toFixed(2)}</td><td className="py-1 text-right text-black">${item.subtotal.toFixed(2)}</td></tr>
                   ))}
                 </tbody>
               </table>
               <div className="border-t-2 border-dashed my-2" />
-              <div className="flex justify-between text-lg font-bold">
-                <span>TOTAL:</span>
-                <span>${ventaActual.total.toFixed(2)}</span>
-              </div>
-              <div className="text-center text-xs text-muted-foreground mt-4 border-t border-dashed pt-3">
-                <p>Gracias por su compra</p>
-                <p>{new Date().toLocaleString("es-EC")}</p>
-              </div>
+              <div className="flex justify-between text-lg font-bold"><span className="text-black">TOTAL:</span><span className="text-black">${ventaActual.total.toFixed(2)}</span></div>
+              <div className="text-center text-xs text-black mt-4 border-t border-dashed pt-3"><p>Gracias por su compra</p><p>{new Date().toLocaleString("es-EC")}</p></div>
             </div>
           )}
           <DialogFooter className="flex gap-2">
-            <Button
-              variant="outline"
-              className="bg-transparent"
-              onClick={() => setTicketOpen(false)}
-            >
-              Cerrar
-            </Button>
-            <Button
-              onClick={() => ventaActual && handleImprimir(ventaActual)}
-              className="gap-2"
-            >
-              <Printer className="h-4 w-4" />
-              Imprimir Ticket
-            </Button>
+            <Button variant="outline" className="bg-transparent" onClick={() => setTicketOpen(false)}>Cerrar</Button>
+            <Button onClick={() => ventaActual && handleImprimir(ventaActual)} className="gap-2"><Printer className="h-4 w-4" />Imprimir Ticket</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

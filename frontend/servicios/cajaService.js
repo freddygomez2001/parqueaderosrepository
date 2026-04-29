@@ -8,7 +8,7 @@ const CAJA_URL = `${BASE_URL}/api/caja`;
  */
 export async function obtenerEstadoCaja() {
   try {
-    const response = await fetch(`${CAJA_URL}/estado?_t=${Date.now()}`, {  // Agregar timestamp para evitar cache
+    const response = await fetch(`${CAJA_URL}/estado?_t=${Date.now()}`, {
       method: "GET",
       headers: {
         "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -26,15 +26,6 @@ export async function obtenerEstadoCaja() {
     throw error;
   }
 }
-
-/**
- * Abrir caja con monto inicial
- * @param {number} montoInicial 
- * @param {string} operador 
- * @param {string} notas 
- */
-
-// src/servicios/cajaService.js
 
 /**
  * Abrir caja con monto inicial y denominaciones
@@ -113,6 +104,10 @@ export async function cerrarCaja(montoFinal, operador = null, notas = null, deno
     throw error;
   }
 }
+
+/**
+ * Obtener resumen de la caja actual
+ */
 export async function obtenerResumenCaja() {
   try {
     const response = await fetch(`${CAJA_URL}/resumen`, {
@@ -139,6 +134,9 @@ export async function obtenerHistorialCajas(limite = 30) {
   try {
     const response = await fetch(`${CAJA_URL}/historial?limite=${limite}`, {
       method: "GET",
+      headers: {
+        "Cache-Control": "no-cache",
+      },
     });
 
     if (!response.ok) {
@@ -152,6 +150,9 @@ export async function obtenerHistorialCajas(limite = 30) {
   }
 }
 
+/**
+ * Obtener movimientos de la caja actual
+ */
 export async function obtenerMovimientosCaja() {
   try {
     const response = await fetch(`${CAJA_URL}/movimientos`);
@@ -163,6 +164,12 @@ export async function obtenerMovimientosCaja() {
   }
 }
 
+/**
+ * Agregar efectivo manual a la caja actual
+ * @param {number} monto 
+ * @param {string} descripcion 
+ * @param {string} operador 
+ */
 export async function agregarEfectivoCaja(monto, descripcion, operador) {
   try {
     const response = await fetch(`${CAJA_URL}/agregar-efectivo`, {
@@ -180,8 +187,6 @@ export async function agregarEfectivoCaja(monto, descripcion, operador) {
     throw error;
   }
 }
-
-// src/servicios/cajaService.js - Agregar
 
 /**
  * Registrar egreso/retiro de efectivo
@@ -209,6 +214,119 @@ export async function registrarEgresoCaja(monto, descripcion, operador) {
     return await response.json();
   } catch (error) {
     console.error("❌ Error en registrarEgresoCaja:", error);
+    throw error;
+  }
+}
+
+/**
+ * Obtener una caja específica por ID (para ver detalles de cajas cerradas)
+ * @param {number} cajaId 
+ */
+export async function obtenerCajaPorId(cajaId) {
+  try {
+    const response = await fetch(`${CAJA_URL}/${cajaId}`, {
+      method: "GET",
+      headers: {
+        "Cache-Control": "no-cache",
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || "Error al obtener caja");
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error(`❌ Error en obtenerCajaPorId (${cajaId}):`, error);
+    throw error;
+  }
+}
+
+/**
+ * Reimprimir ticket de una caja cerrada
+ * @param {object} caja - Datos de la caja (obtenidos de obtenerCajaPorId)
+ */
+export async function reimprimirTicketCaja(caja) {
+  try {
+    // Construir el resumen similar al del cierre
+    const totalEfectivo = caja.movimientos
+      ?.filter(m => m.suma_a_caja === true && m.monto > 0)
+      .reduce((sum, m) => sum + m.monto, 0) || 0;
+    
+    const totalTarjeta = caja.movimientos
+      ?.filter(m => m.metodo_pago === "tarjeta")
+      .reduce((sum, m) => sum + m.monto, 0) || 0;
+    
+    const totalTransferencia = caja.movimientos
+      ?.filter(m => m.metodo_pago === "transferencia")
+      .reduce((sum, m) => sum + m.monto, 0) || 0;
+    
+    const totalEgresos = caja.total_egresos || 0;
+    
+    const desglose = {
+      parqueo: { efectivo: 0, tarjeta: 0, transferencia: 0, total: 0 },
+      servicios: { efectivo: 0, tarjeta: 0, transferencia: 0, total: 0 },
+      hotel: { efectivo: 0, tarjeta: 0, transferencia: 0, total: 0 },
+      bano: { efectivo: 0, tarjeta: 0, transferencia: 0, total: 0 },
+      manuales: 0
+    };
+    
+    caja.movimientos?.forEach(m => {
+      if (m.tipo === "parqueo") {
+        if (m.metodo_pago === "efectivo") desglose.parqueo.efectivo += m.monto;
+        else if (m.metodo_pago === "tarjeta") desglose.parqueo.tarjeta += m.monto;
+        else if (m.metodo_pago === "transferencia") desglose.parqueo.transferencia += m.monto;
+        desglose.parqueo.total += m.monto;
+      }
+      else if (m.tipo === "servicio") {
+        if (m.descripcion?.includes("Habitación") || m.descripcion?.includes("hotel")) {
+          if (m.metodo_pago === "efectivo") desglose.hotel.efectivo += m.monto;
+          else if (m.metodo_pago === "tarjeta") desglose.hotel.tarjeta += m.monto;
+          else if (m.metodo_pago === "transferencia") desglose.hotel.transferencia += m.monto;
+          desglose.hotel.total += m.monto;
+        }
+        else if (m.descripcion?.includes("Baño") || m.descripcion?.includes("bano")) {
+          if (m.metodo_pago === "efectivo") desglose.bano.efectivo += m.monto;
+          else if (m.metodo_pago === "tarjeta") desglose.bano.tarjeta += m.monto;
+          else if (m.metodo_pago === "transferencia") desglose.bano.transferencia += m.monto;
+          desglose.bano.total += m.monto;
+        }
+        else {
+          if (m.metodo_pago === "efectivo") desglose.servicios.efectivo += m.monto;
+          else if (m.metodo_pago === "tarjeta") desglose.servicios.tarjeta += m.monto;
+          else if (m.metodo_pago === "transferencia") desglose.servicios.transferencia += m.monto;
+          desglose.servicios.total += m.monto;
+        }
+      }
+      else if (m.tipo === "efectivo_manual") {
+        desglose.manuales += m.monto;
+      }
+    });
+    
+    const resumen = {
+      montoInicial: parseFloat(caja.monto_inicial) || 0,
+      totalParqueo: parseFloat(caja.total_parqueo) || 0,
+      totalServicios: parseFloat(caja.total_servicios) || 0,
+      totalIngresos: parseFloat(caja.total_ingresos) || 0,
+      totalEgresos: totalEgresos,
+      saldoNeto: (parseFloat(caja.total_ingresos) || 0) - totalEgresos,
+      montoEsperado: parseFloat(caja.monto_esperado) || 0,
+      montoFisico: parseFloat(caja.monto_final) || 0,
+      diferencia: parseFloat(caja.diferencia) || 0,
+      operador: caja.operador_apertura || "",
+      fechaCierre: caja.fecha_cierre || new Date().toISOString(),
+      movimientos: caja.movimientos || [],
+      denominaciones: caja.denominaciones?.cierre ? { 
+        items: caja.denominaciones.cierre,
+        total: caja.denominaciones.total_cierre || 0
+      } : null,
+      desglose: desglose
+    };
+    
+    return resumen;
+  } catch (error) {
+    console.error("❌ Error en reimprimirTicketCaja:", error);
     throw error;
   }
 }

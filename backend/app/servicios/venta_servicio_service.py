@@ -1,13 +1,14 @@
 # app/servicios/venta_servicio_service.py
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, and_
 from datetime import datetime, date, timedelta
+from decimal import Decimal  # ← IMPORTANTE: Importar Decimal
 from app.modelos.venta_servicio import VentaServicio, ItemVentaServicio
 from app.servicios.producto_service import ProductoService
 from typing import List, Optional
 
-# Precio fijo del baño por persona
-PRECIO_BANO = 0.25
+# Precio fijo del baño por persona (usar Decimal)
+PRECIO_BANO = Decimal('0.25')  # ← Cambiado a Decimal
 
 
 class VentaServicioService:
@@ -22,7 +23,7 @@ class VentaServicioService:
         - Hotel: { tipo_especial: "hotel", habitacion, monto_hotel }
         """
         items_validados = []
-        total_venta = 0.0
+        total_venta = Decimal('0.00')  # ← Cambiado a Decimal
 
         for item_data in items_data:
             tipo_especial = item_data.get("tipo_especial")
@@ -30,22 +31,22 @@ class VentaServicioService:
             # ── BAÑO ──────────────────────────────────────────────
             if tipo_especial == "bano":
                 personas = item_data.get("personas", 1)
-                subtotal = PRECIO_BANO * personas
+                subtotal = PRECIO_BANO * Decimal(str(personas))  # ← Convertir a Decimal
                 total_venta += subtotal
                 items_validados.append({
                     "tipo_item": "bano",
                     "producto_id": None,
                     "nombre": f"Uso de baño ({personas} persona{'s' if personas != 1 else ''})",
                     "cantidad": personas,
-                    "precio_unitario": PRECIO_BANO,
-                    "subtotal": subtotal,
+                    "precio_unitario": float(PRECIO_BANO),  # Para JSON
+                    "subtotal": float(subtotal),  # Para JSON
                     "habitacion": None,
                 })
 
             # ── HOTEL ─────────────────────────────────────────────
             elif tipo_especial == "hotel":
                 habitacion = item_data.get("habitacion")
-                monto = float(item_data.get("monto_hotel", 0))
+                monto = Decimal(str(item_data.get("monto_hotel", 0)))  # ← Convertir a Decimal
                 subtotal = monto
                 total_venta += subtotal
                 items_validados.append({
@@ -53,8 +54,8 @@ class VentaServicioService:
                     "producto_id": None,
                     "nombre": f"Habitación {habitacion}",
                     "cantidad": 1,
-                    "precio_unitario": monto,
-                    "subtotal": subtotal,
+                    "precio_unitario": float(monto),  # Para JSON
+                    "subtotal": float(subtotal),  # Para JSON
                     "habitacion": habitacion,
                 })
 
@@ -74,29 +75,30 @@ class VentaServicioService:
                         f"Disponible: {producto.stock}, solicitado: {cantidad}"
                     )
 
-                subtotal = float(producto.precio) * cantidad
+                # Convertir Decimal de producto a Decimal
+                precio_decimal = Decimal(str(producto.precio))
+                subtotal = precio_decimal * Decimal(str(cantidad))
                 total_venta += subtotal
+                
                 items_validados.append({
                     "tipo_item": "producto",
                     "producto_id": producto.id,
-                    "producto_obj": producto,  # para descontar stock después
+                    "producto_obj": producto,
                     "nombre": producto.nombre,
                     "cantidad": cantidad,
-                    "precio_unitario": float(producto.precio),
-                    "subtotal": subtotal,
+                    "precio_unitario": float(precio_decimal),  # Para JSON
+                    "subtotal": float(subtotal),  # Para JSON
                     "habitacion": None,
                 })
 
-        # ── Crear venta ───────────────────────────────────────────
         venta = VentaServicio(
-            total=total_venta,
+            total=float(total_venta),  # ← Guardar como float en DB
             fecha=datetime.now(),
             metodo_pago=metodo_pago,
         )
         db.add(venta)
-        db.flush()  # obtener ID
+        db.flush()
 
-        # ── Crear items y descontar stock ─────────────────────────
         for iv in items_validados:
             item = ItemVentaServicio(
                 venta_id=venta.id,
@@ -110,7 +112,6 @@ class VentaServicioService:
             )
             db.add(item)
 
-            # Solo descontar stock a productos del catálogo
             if iv["tipo_item"] == "producto":
                 iv["producto_obj"].stock -= iv["cantidad"]
 
@@ -118,15 +119,13 @@ class VentaServicioService:
         db.refresh(venta)
         return venta
 
-    # ── Consultas ─────────────────────────────────────────────────────
-
     @staticmethod
     def obtener_ventas(
         db: Session,
         fecha: Optional[str] = None,
         limite: int = 50
     ) -> List[VentaServicio]:
-        query = db.query(VentaServicio)
+        query = db.query(VentaServicio).options(joinedload(VentaServicio.items))
 
         if fecha:
             try:
@@ -143,91 +142,148 @@ class VentaServicioService:
 
     @staticmethod
     def obtener_venta_por_id(db: Session, venta_id: int) -> Optional[VentaServicio]:
-        return db.query(VentaServicio).filter(VentaServicio.id == venta_id).first()
+        return (
+            db.query(VentaServicio)
+            .options(joinedload(VentaServicio.items))
+            .filter(VentaServicio.id == venta_id)
+            .first()
+        )
 
     @staticmethod
-    def obtener_reporte_diario(db: Session, fecha: Optional[str] = None) -> dict:
-        """Reporte del día con desglose por método de pago y categoría"""
-        if fecha:
-            fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
-        else:
-            fecha_obj = date.today()
-
-        inicio = datetime.combine(fecha_obj, datetime.min.time())
-        fin = datetime.combine(fecha_obj + timedelta(days=1), datetime.min.time())
-
-        filtro_dia = and_(VentaServicio.fecha >= inicio, VentaServicio.fecha < fin)
-
-        # Totales generales
-        res = db.query(
-            func.count(VentaServicio.id).label("total_tickets"),
-            func.sum(VentaServicio.total).label("total_ventas"),
-        ).filter(filtro_dia).first()
-
-        total_tickets = res.total_tickets or 0
-        total_ventas = float(res.total_ventas or 0)
-
-        # Por método de pago
-        res_efectivo = db.query(
-            func.sum(VentaServicio.total)
-        ).filter(filtro_dia, VentaServicio.metodo_pago == "efectivo").scalar() or 0
-
-        res_tarjeta = db.query(
-            func.sum(VentaServicio.total)
-        ).filter(filtro_dia, VentaServicio.metodo_pago == "tarjeta").scalar() or 0
-
-        # Total productos vendidos (solo items de catálogo)
-        total_productos = (
-            db.query(func.sum(ItemVentaServicio.cantidad))
-            .join(VentaServicio)
-            .filter(filtro_dia, ItemVentaServicio.tipo_item == "producto")
-            .scalar() or 0
-        )
-
-        # Ventas por categoría (bebidas, snacks, baño, hotel)
+    def obtener_reporte_por_rango(db: Session, fecha_inicio: date, fecha_fin: date) -> dict:
+        """Obtiene reporte completo para un rango de fechas con desglose por categorías, habitaciones y productos"""
         from app.modelos.producto import Producto
+        from decimal import Decimal
 
-        ventas_bebidas = (
-            db.query(func.sum(ItemVentaServicio.subtotal))
-            .join(Producto, ItemVentaServicio.producto_id == Producto.id)
-            .join(VentaServicio)
-            .filter(filtro_dia, Producto.categoria == "bebidas")
-            .scalar() or 0
+        inicio = datetime.combine(fecha_inicio, datetime.min.time())
+        fin = datetime.combine(fecha_fin + timedelta(days=1), datetime.min.time())
+
+        filtro_fecha = and_(VentaServicio.fecha >= inicio, VentaServicio.fecha < fin)
+
+        ventas = (
+            db.query(VentaServicio)
+            .options(joinedload(VentaServicio.items))
+            .filter(filtro_fecha)
+            .all()
         )
 
-        ventas_snacks = (
-            db.query(func.sum(ItemVentaServicio.subtotal))
-            .join(Producto, ItemVentaServicio.producto_id == Producto.id)
-            .join(VentaServicio)
-            .filter(filtro_dia, Producto.categoria == "snacks")
-            .scalar() or 0
-        )
+        # ✅ INICIALIZAR CON DECIMAL, NO CON FLOAT
+        total_ventas = Decimal('0.00')
+        total_efectivo = Decimal('0.00')
+        total_tarjeta = Decimal('0.00')
+        total_transferencia = Decimal('0.00')
+        cantidad_tickets = len(ventas)
+        total_productos_vendidos = 0
 
-        ventas_bano = (
-            db.query(func.sum(ItemVentaServicio.subtotal))
-            .join(VentaServicio)
-            .filter(filtro_dia, ItemVentaServicio.tipo_item == "bano")
-            .scalar() or 0
-        )
+        ventas_por_categoria = {
+            "bebidas": Decimal('0.00'),
+            "snacks": Decimal('0.00'),
+            "otros": Decimal('0.00'),
+            "bano": Decimal('0.00'),
+            "hotel": Decimal('0.00')
+        }
 
-        ventas_hotel = (
-            db.query(func.sum(ItemVentaServicio.subtotal))
-            .join(VentaServicio)
-            .filter(filtro_dia, ItemVentaServicio.tipo_item == "hotel")
-            .scalar() or 0
-        )
+        ventas_por_habitacion = {}
+        ventas_por_producto = {}
 
+        for venta in ventas:
+            # venta.total puede ser float o Decimal, convertir a Decimal
+            total_venta_decimal = Decimal(str(venta.total))
+            total_ventas += total_venta_decimal
+
+            if venta.metodo_pago == "efectivo":
+                total_efectivo += total_venta_decimal
+            elif venta.metodo_pago == "tarjeta":
+                total_tarjeta += total_venta_decimal
+            elif venta.metodo_pago == "transferencia":
+                total_transferencia += total_venta_decimal
+
+            for item in venta.items:
+                # Convertir subtotal a Decimal si es necesario
+                subtotal_decimal = Decimal(str(item.subtotal))
+
+                if item.tipo_item == "producto":
+                    total_productos_vendidos += item.cantidad
+
+                    if item.nombre_producto not in ventas_por_producto:
+                        ventas_por_producto[item.nombre_producto] = {
+                            "cantidad": 0,
+                            "total": Decimal('0.00'),
+                            "efectivo": Decimal('0.00'),
+                            "tarjeta": Decimal('0.00'),
+                            "transferencia": Decimal('0.00')
+                        }
+                    ventas_por_producto[item.nombre_producto]["cantidad"] += item.cantidad
+                    ventas_por_producto[item.nombre_producto]["total"] += subtotal_decimal
+
+                    if venta.metodo_pago == "efectivo":
+                        ventas_por_producto[item.nombre_producto]["efectivo"] += subtotal_decimal
+                    elif venta.metodo_pago == "tarjeta":
+                        ventas_por_producto[item.nombre_producto]["tarjeta"] += subtotal_decimal
+                    else:
+                        ventas_por_producto[item.nombre_producto]["transferencia"] += subtotal_decimal
+
+                    producto = db.query(Producto).filter(Producto.id == item.producto_id).first()
+                    if producto:
+                        categoria = producto.categoria
+                        if categoria in ventas_por_categoria:
+                            ventas_por_categoria[categoria] += subtotal_decimal
+
+                elif item.tipo_item == "bano":
+                    ventas_por_categoria["bano"] += subtotal_decimal
+
+                elif item.tipo_item == "hotel":
+                    ventas_por_categoria["hotel"] += subtotal_decimal
+
+                    habitacion = item.habitacion
+                    if habitacion:
+                        if habitacion not in ventas_por_habitacion:
+                            ventas_por_habitacion[habitacion] = {
+                                "total": Decimal('0.00'),
+                                "cantidad": 0,
+                                "efectivo": Decimal('0.00'),
+                                "tarjeta": Decimal('0.00'),
+                                "transferencia": Decimal('0.00')
+                            }
+                        ventas_por_habitacion[habitacion]["total"] += subtotal_decimal
+                        ventas_por_habitacion[habitacion]["cantidad"] += 1
+
+                        if venta.metodo_pago == "efectivo":
+                            ventas_por_habitacion[habitacion]["efectivo"] += subtotal_decimal
+                        elif venta.metodo_pago == "tarjeta":
+                            ventas_por_habitacion[habitacion]["tarjeta"] += subtotal_decimal
+                        else:
+                            ventas_por_habitacion[habitacion]["transferencia"] += subtotal_decimal
+
+        # ✅ Convertir Decimal a float para JSON al final
         return {
-            "fecha": fecha_obj.isoformat(),
-            "total_ventas": total_ventas,
-            "total_efectivo": float(res_efectivo),
-            "total_tarjeta": float(res_tarjeta),
-            "cantidad_tickets": total_tickets,
-            "total_productos_vendidos": int(total_productos),
-            "ventas_por_categoria": {
-                "bebidas": float(ventas_bebidas),
-                "snacks": float(ventas_snacks),
-                "bano": float(ventas_bano),
-                "hotel": float(ventas_hotel),
+            "fecha_inicio": fecha_inicio.isoformat(),
+            "fecha_fin": fecha_fin.isoformat(),
+            "total_ventas": float(total_ventas),
+            "total_efectivo": float(total_efectivo),
+            "total_tarjeta": float(total_tarjeta),
+            "total_transferencia": float(total_transferencia),
+            "cantidad_tickets": cantidad_tickets,
+            "total_productos_vendidos": total_productos_vendidos,
+            "ventas_por_categoria": {k: float(v) for k, v in ventas_por_categoria.items()},
+            "ventas_por_habitacion": {
+                k: {
+                    "total": float(v["total"]),
+                    "cantidad": v["cantidad"],
+                    "efectivo": float(v["efectivo"]),
+                    "tarjeta": float(v["tarjeta"]),
+                    "transferencia": float(v["transferencia"])
+                }
+                for k, v in ventas_por_habitacion.items()
+            },
+            "ventas_por_producto": {
+                k: {
+                    "cantidad": v["cantidad"],
+                    "total": float(v["total"]),
+                    "efectivo": float(v["efectivo"]),
+                    "tarjeta": float(v["tarjeta"]),
+                    "transferencia": float(v["transferencia"])
+                }
+                for k, v in ventas_por_producto.items()
             },
         }

@@ -12,6 +12,7 @@ import { ServicesPanel } from "@/components/services-panel"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -53,37 +54,38 @@ import {
   AlertCircle,
   DollarSign,
   Calculator,
-  Minus,  // ✅ IMPORTAR Minus para egresos
+  Minus,
+  Landmark,
 } from "lucide-react"
 import {
   obtenerMovimientosCaja,
   agregarEfectivoCaja,
   cerrarCaja,
-  registrarEgresoCaja,  // ✅ NUEVO: Importar servicio de egresos
+  registrarEgresoCaja,
 } from "@/servicios/cajaService"
 import { DenominacionesCaja } from "@/components/denominaciones-caja"
-import { RetirarEfectivoDialog } from "@/components/retirar-efectivo-dialog"  // ✅ NUEVO: Importar componente de egresos
+import { RetirarEfectivoDialog } from "@/components/retirar-efectivo-dialog"
+import { HistorialCierres } from "@/components/historial-cierres"
 import { toast } from "sonner"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface MovimientoCaja {
   id: string
-  tipo: "parqueo" | "servicio" | "efectivo_manual" | "egreso"  // ✅ AGREGAR 'egreso'
+  tipo: "parqueo" | "servicio" | "efectivo_manual" | "egreso"
   descripcion: string
   monto: number
   metodo_pago?: string
   fecha: string
 }
 
-// En dashboard.tsx - Actualizar la interfaz MovimientosResponse
-
 interface MovimientosResponse {
   movimientos: MovimientoCaja[]
   total_efectivo: number
   total_tarjeta: number
-  total_egresos: number      // ✅ AGREGAR
-  saldo_neto: number         // ✅ AGREGAR
+  total_transferencia: number
+  total_egresos: number
+  saldo_neto: number
   total_movimientos: number
 }
 
@@ -108,12 +110,11 @@ interface CierreResumen {
     }>
     total: number
   }
-  // ✅ NUEVOS CAMPOS PARA DESGLOSE
   desglose?: {
-    parqueo: { efectivo: number; tarjeta: number; total: number }
-    servicios: { efectivo: number; tarjeta: number; total: number }
-    hotel: { efectivo: number; tarjeta: number; total: number }
-    bano: { efectivo: number; tarjeta: number; total: number }
+    parqueo: { efectivo: number; tarjeta: number; transferencia: number; total: number }
+    servicios: { efectivo: number; tarjeta: number; transferencia: number; total: number }
+    hotel: { efectivo: number; tarjeta: number; transferencia: number; total: number }
+    bano: { efectivo: number; tarjeta: number; transferencia: number; total: number }
     manuales: number
   }
 }
@@ -128,7 +129,7 @@ const HOTEL_INFO = {
 }
 
 function tipoBadge(tipo: string, metodoPago?: string) {
-  // ✅ EGRESO / RETIRO DE EFECTIVO
+  // EGRESO / RETIRO DE EFECTIVO
   if (tipo === "egreso") {
     return (
       <Badge variant="destructive" className="text-xs">
@@ -138,7 +139,7 @@ function tipoBadge(tipo: string, metodoPago?: string) {
     )
   }
 
-  // ✅ PARQUEO CON TARJETA
+  // PARQUEO CON TARJETA
   if (tipo === "parqueo" && metodoPago === "tarjeta") {
     return (
       <Badge variant="secondary" className="text-xs">
@@ -148,7 +149,17 @@ function tipoBadge(tipo: string, metodoPago?: string) {
     )
   }
 
-  // ✅ PARQUEO CON EFECTIVO (o sin especificar)
+  // PARQUEO CON TRANSFERENCIA
+  if (tipo === "parqueo" && metodoPago === "transferencia") {
+    return (
+      <Badge variant="outline" className="text-xs border-purple-300 text-purple-700">
+        <Landmark className="h-3 w-3 mr-1" />
+        Parqueo (Transferencia)
+      </Badge>
+    )
+  }
+
+  // PARQUEO CON EFECTIVO
   if (tipo === "parqueo") {
     return (
       <Badge variant="default" className="text-xs bg-blue-600 hover:bg-blue-600">
@@ -158,7 +169,7 @@ function tipoBadge(tipo: string, metodoPago?: string) {
     )
   }
 
-  // ✅ EFECTIVO MANUAL
+  // EFECTIVO MANUAL
   if (tipo === "efectivo_manual") {
     return (
       <Badge variant="default" className="text-xs bg-amber-500 hover:bg-amber-500">
@@ -168,7 +179,17 @@ function tipoBadge(tipo: string, metodoPago?: string) {
     )
   }
 
-  // ✅ SERVICIO CON TARJETA
+  // SERVICIO CON TRANSFERENCIA
+  if (metodoPago === "transferencia") {
+    return (
+      <Badge variant="outline" className="text-xs border-purple-300 text-purple-700">
+        <Landmark className="h-3 w-3 mr-1" />
+        Servicio (Transferencia)
+      </Badge>
+    )
+  }
+
+  // SERVICIO CON TARJETA
   if (metodoPago === "tarjeta") {
     return (
       <Badge variant="secondary" className="text-xs">
@@ -178,7 +199,7 @@ function tipoBadge(tipo: string, metodoPago?: string) {
     )
   }
 
-  // ✅ SERVICIO CON EFECTIVO (por defecto)
+  // SERVICIO CON EFECTIVO (por defecto)
   return (
     <Badge variant="default" className="text-xs bg-green-600 hover:bg-green-600">
       <Banknote className="h-3 w-3 mr-1" />
@@ -324,12 +345,11 @@ function CierreCajaDialog({
         modoCierre === "denominaciones" ? denominacionesData : undefined
       )
 
-      // ✅ CALCULAR DESGLOSE COMPLETO
       const desglose = {
-        parqueo: { efectivo: 0, tarjeta: 0, total: 0 },
-        servicios: { efectivo: 0, tarjeta: 0, total: 0 },
-        hotel: { efectivo: 0, tarjeta: 0, total: 0 },
-        bano: { efectivo: 0, tarjeta: 0, total: 0 },
+        parqueo: { efectivo: 0, tarjeta: 0, transferencia: 0, total: 0 },
+        servicios: { efectivo: 0, tarjeta: 0, transferencia: 0, total: 0 },
+        hotel: { efectivo: 0, tarjeta: 0, transferencia: 0, total: 0 },
+        bano: { efectivo: 0, tarjeta: 0, transferencia: 0, total: 0 },
         manuales: 0
       }
 
@@ -337,23 +357,26 @@ function CierreCajaDialog({
         if (m.tipo === "parqueo") {
           if (m.metodo_pago === "efectivo") desglose.parqueo.efectivo += m.monto
           else if (m.metodo_pago === "tarjeta") desglose.parqueo.tarjeta += m.monto
+          else if (m.metodo_pago === "transferencia") desglose.parqueo.transferencia += m.monto
           desglose.parqueo.total += m.monto
         }
         else if (m.tipo === "servicio") {
-          // Servicios puede ser de productos, hotel o baño
           if (m.descripcion.includes("Habitación") || m.descripcion.includes("hotel")) {
             if (m.metodo_pago === "efectivo") desglose.hotel.efectivo += m.monto
             else if (m.metodo_pago === "tarjeta") desglose.hotel.tarjeta += m.monto
+            else if (m.metodo_pago === "transferencia") desglose.hotel.transferencia += m.monto
             desglose.hotel.total += m.monto
           }
           else if (m.descripcion.includes("Baño") || m.descripcion.includes("bano")) {
             if (m.metodo_pago === "efectivo") desglose.bano.efectivo += m.monto
             else if (m.metodo_pago === "tarjeta") desglose.bano.tarjeta += m.monto
+            else if (m.metodo_pago === "transferencia") desglose.bano.transferencia += m.monto
             desglose.bano.total += m.monto
           }
           else {
             if (m.metodo_pago === "efectivo") desglose.servicios.efectivo += m.monto
             else if (m.metodo_pago === "tarjeta") desglose.servicios.tarjeta += m.monto
+            else if (m.metodo_pago === "transferencia") desglose.servicios.transferencia += m.monto
             desglose.servicios.total += m.monto
           }
         }
@@ -376,7 +399,7 @@ function CierreCajaDialog({
         fechaCierre: new Date().toISOString(),
         movimientos: [...movimientos],
         denominaciones: modoCierre === "denominaciones" ? denominacionesData : undefined,
-        desglose // ✅ AGREGAR DESGLOSE
+        desglose
       }
 
       toast.success("Caja cerrada exitosamente", {
@@ -420,7 +443,6 @@ function CierreCajaDialog({
           </DialogHeader>
 
           <div className="space-y-3 py-1">
-            {/* Resumen de caja con egresos */}
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="rounded-lg bg-muted/50 p-2">
                 <p className="text-[10px] text-muted-foreground">Monto inicial</p>
@@ -444,7 +466,6 @@ function CierreCajaDialog({
               </div>
             </div>
 
-            {/* Tabs de cierre */}
             <Tabs
               value={modoCierre}
               onValueChange={(v) => setModoCierre(v as "directo" | "denominaciones")}
@@ -490,13 +511,10 @@ function CierreCajaDialog({
               </TabsContent>
             </Tabs>
 
-            {/* Diferencia */}
             {montoFisicoNum > 0 && (
-              <div className={`rounded-lg p-2 text-center ${diferencia >= 0 ? "bg-green-500/10" : "bg-destructive/10"
-                }`}>
+              <div className={`rounded-lg p-2 text-center ${diferencia >= 0 ? "bg-green-500/10" : "bg-destructive/10"}`}>
                 <p className="text-[10px] text-muted-foreground">Diferencia</p>
-                <p className={`text-base font-bold ${diferencia >= 0 ? "text-green-600" : "text-destructive"
-                  }`}>
+                <p className={`text-base font-bold ${diferencia >= 0 ? "text-green-600" : "text-destructive"}`}>
                   {diferencia >= 0 ? "+" : ""}${diferencia.toFixed(2)}
                 </p>
                 <p className="text-[10px] text-muted-foreground mt-0.5">
@@ -534,8 +552,6 @@ function CierreCajaDialog({
 
 // ─── Ticket de cierre ─────────────────────────────────────────────────────────
 
-// ─── Ticket de cierre ─────────────────────────────────────────────────────────
-
 function TicketCierreDialog({
   resumen,
   onClose,
@@ -543,20 +559,25 @@ function TicketCierreDialog({
   resumen: CierreResumen
   onClose: () => void
 }) {
-  // Calcular total de tarjeta en el ámbito del componente
   const d = resumen.desglose || {
-    parqueo: { efectivo: 0, tarjeta: 0, total: 0 },
-    servicios: { efectivo: 0, tarjeta: 0, total: 0 },
-    hotel: { efectivo: 0, tarjeta: 0, total: 0 },
-    bano: { efectivo: 0, tarjeta: 0, total: 0 },
+    parqueo: { efectivo: 0, tarjeta: 0, transferencia: 0, total: 0 },
+    servicios: { efectivo: 0, tarjeta: 0, transferencia: 0, total: 0 },
+    hotel: { efectivo: 0, tarjeta: 0, transferencia: 0, total: 0 },
+    bano: { efectivo: 0, tarjeta: 0, transferencia: 0, total: 0 },
     manuales: 0
   }
-  
-  const totalTarjeta = 
-    (d.parqueo.tarjeta || 0) + 
-    (d.servicios.tarjeta || 0) + 
-    (d.hotel.tarjeta || 0) + 
+
+  const totalTarjeta =
+    (d.parqueo.tarjeta || 0) +
+    (d.servicios.tarjeta || 0) +
+    (d.hotel.tarjeta || 0) +
     (d.bano.tarjeta || 0)
+
+  const totalTransferencia =
+    (d.parqueo.transferencia || 0) +
+    (d.servicios.transferencia || 0) +
+    (d.hotel.transferencia || 0) +
+    (d.bano.transferencia || 0)
 
   const handleImprimir = () => {
     const printWindow = window.open("", "", "width=72mm,height=800")
@@ -590,7 +611,6 @@ function TicketCierreDialog({
           th:last-child, td:last-child { text-align: right; }
         </style>
       </head><body>
-        <!-- HEADER -->
         <div class="center" style="font-size:13px">${HOTEL_INFO.nombre}</div>
         <div class="center" style="font-size:9px">${HOTEL_INFO.direccion}</div>
         <div class="center" style="font-size:9px">Tel: ${HOTEL_INFO.telefono}</div>
@@ -599,137 +619,87 @@ function TicketCierreDialog({
         <div class="center">CIERRE DE CAJA</div>
         <div class="separator"></div>
         
-        <!-- INFORMACIÓN GENERAL -->
         <div class="row"><span>Fecha:</span><span>${new Date(resumen.fechaCierre).toLocaleDateString("es-EC")}</span></div>
         <div class="row"><span>Hora:</span><span>${new Date(resumen.fechaCierre).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}</span></div>
         <div class="row"><span>Operador:</span><span>${resumen.operador}</span></div>
         <div class="separator"></div>
         
-        <!-- ========== DESGLOSE DE INGRESOS ========== -->
         <div class="section-title">DESGLOSE DE INGRESOS</div>
         
-        <!-- PARQUEO -->
         <div class="row"><span>PARQUEO:</span><span>$${d.parqueo.total.toFixed(2)}</span></div>
         <div class="row sub-row"><span>  - Efectivo:</span><span>+$${d.parqueo.efectivo.toFixed(2)}</span></div>
         <div class="row sub-row"><span>  - Tarjeta:</span><span>$${d.parqueo.tarjeta.toFixed(2)}</span></div>
+        <div class="row sub-row"><span>  - Transferencia:</span><span>$${d.parqueo.transferencia.toFixed(2)}</span></div>
         
-        <!-- SERVICIOS (Productos) -->
         <div class="row"><span>SERVICIOS:</span><span>$${d.servicios.total.toFixed(2)}</span></div>
         <div class="row sub-row"><span>  - Efectivo:</span><span>+$${d.servicios.efectivo.toFixed(2)}</span></div>
         <div class="row sub-row"><span>  - Tarjeta:</span><span>$${d.servicios.tarjeta.toFixed(2)}</span></div>
+        <div class="row sub-row"><span>  - Transferencia:</span><span>$${d.servicios.transferencia.toFixed(2)}</span></div>
         
-        <!-- HOTEL -->
         ${d.hotel.total > 0 ? `
           <div class="row"><span>HOTEL:</span><span>$${d.hotel.total.toFixed(2)}</span></div>
           <div class="row sub-row"><span>  - Efectivo:</span><span>+$${d.hotel.efectivo.toFixed(2)}</span></div>
           <div class="row sub-row"><span>  - Tarjeta:</span><span>$${d.hotel.tarjeta.toFixed(2)}</span></div>
+          <div class="row sub-row"><span>  - Transferencia:</span><span>$${d.hotel.transferencia.toFixed(2)}</span></div>
         ` : ''}
         
-        <!-- BAÑO -->
         ${d.bano.total > 0 ? `
           <div class="row"><span>BAÑO:</span><span>$${d.bano.total.toFixed(2)}</span></div>
           <div class="row sub-row"><span>  - Efectivo:</span><span>+$${d.bano.efectivo.toFixed(2)}</span></div>
           <div class="row sub-row"><span>  - Tarjeta:</span><span>$${d.bano.tarjeta.toFixed(2)}</span></div>
+          <div class="row sub-row"><span>  - Transferencia:</span><span>$${d.bano.transferencia.toFixed(2)}</span></div>
         ` : ''}
         
-        <!-- MANUALES -->
-        ${d.manuales > 0 ? `
-          <div class="row"><span>MANUALES:</span><span>+$${d.manuales.toFixed(2)}</span></div>
-        ` : ''}
-        
-        <!-- EGRESOS -->
-        ${resumen.totalEgresos ? `
-          <div class="row"><span>EGRESOS (RETIROS):</span><span>-$${resumen.totalEgresos.toFixed(2)}</span></div>
-        ` : ''}
+        ${d.manuales > 0 ? `<div class="row"><span>MANUALES:</span><span>+$${d.manuales.toFixed(2)}</span></div>` : ''}
+        ${resumen.totalEgresos ? `<div class="row"><span>EGRESOS (RETIROS):</span><span>-$${resumen.totalEgresos.toFixed(2)}</span></div>` : ''}
         
         <div class="separator"></div>
         
-        <!-- RESUMEN DE CAJA -->
         <div class="row"><span>Monto inicial:</span><span>$${resumen.montoInicial.toFixed(2)}</span></div>
         <div class="row"><span>Total ingresos efectivo:</span><span>+$${resumen.totalIngresos.toFixed(2)}</span></div>
         <div class="row"><span>SALDO NETO:</span><span>$${resumen.saldoNeto?.toFixed(2) || resumen.totalIngresos.toFixed(2)}</span></div>
         <div class="separator"></div>
         
-        <!-- DESGLOSE DE DENOMINACIONES -->
         ${denominaciones.length > 0 ? `
           <div class="section-title">DESGLOSE DE EFECTIVO FISICO</div>
           ${billetes.length > 0 ? `
             <div class="section-title">BILLETES</div>
             <table class="denom-table">
-              ${billetes.map(d => `
-                <tr>
-                  <td>$${d.denominacion.toFixed(2)}</td>
-                  <td>x ${d.cantidad}</td>
-                  <td>$${d.subtotal.toFixed(2)}</td>
-                </tr>
-              `).join('')}
-              <tr style="border-top: 1px solid #000;">
-                <td colspan="2">Total billetes:</td>
-                <td>$${totalBilletes.toFixed(2)}</td>
-              </tr>
+              ${billetes.map(d => `<tr><td>$${d.denominacion.toFixed(2)}</td><td>x ${d.cantidad}</td><td>$${d.subtotal.toFixed(2)}</td></tr>`).join('')}
+              <tr style="border-top: 1px solid #000;"><td colspan="2">Total billetes:</td><td>$${totalBilletes.toFixed(2)}</td></tr>
             </table>
           ` : ''}
           ${monedas.length > 0 ? `
             <div class="section-title">MONEDAS</div>
             <table class="denom-table">
-              ${monedas.map(d => `
-                <tr>
-                  <td>$${d.denominacion.toFixed(2)}</td>
-                  <td>x ${d.cantidad}</td>
-                  <td>$${d.subtotal.toFixed(2)}</td>
-                </tr>
-              `).join('')}
-              <tr style="border-top: 1px solid #000;">
-                <td colspan="2">Total monedas:</td>
-                <td>$${totalMonedas.toFixed(2)}</td>
-              </tr>
+              ${monedas.map(d => `<tr><td>$${d.denominacion.toFixed(2)}</td><td>x ${d.cantidad}</td><td>$${d.subtotal.toFixed(2)}</td></tr>`).join('')}
+              <tr style="border-top: 1px solid #000;"><td colspan="2">Total monedas:</td><td>$${totalMonedas.toFixed(2)}</td></tr>
             </table>
           ` : ''}
           <div class="separator"></div>
         ` : ''}
         
-        <!-- TOTALES FINALES -->
         <div class="row total"><span>MONTO ESPERADO:</span><span>$${resumen.montoEsperado.toFixed(2)}</span></div>
         <div class="row total"><span>MONTO FISICO:</span><span>$${resumen.montoFisico.toFixed(2)}</span></div>
         <div class="row total"><span>TOTAL TARJETA:</span><span>$${totalTarjeta.toFixed(2)}</span></div>
-        <div class="row">
-          <span>DIFERENCIA:</span>
-          <span>${resumen.diferencia >= 0 ? '+' : ''}$${resumen.diferencia.toFixed(2)}</span>
-        </div>
+        <div class="row total"><span>TOTAL TRANSFERENCIA:</span><span>$${totalTransferencia.toFixed(2)}</span></div>
+        <div class="row"><span>DIFERENCIA:</span><span>${resumen.diferencia >= 0 ? '+' : ''}$${resumen.diferencia.toFixed(2)}</span></div>
         <div class="separator"></div>
         
-        <!-- MOVIMIENTOS (solo últimos 10) -->
         <div style="font-size:9px;margin-bottom:2px">MOVIMIENTOS (ultimos 10 de ${resumen.movimientos.length})</div>
         <table>
-          <thead>
-            <tr style="border-bottom: 1px solid #000;">
-              <th>Hora</th>
-              <th>Tipo</th>
-              <th>Descripcion</th>
-              <th>Monto</th>
-            </tr>
-          </thead>
+          <thead><tr style="border-bottom: 1px solid #000;"><th>Hora</th><th>Tipo</th><th>Descripcion</th><th>Monto</th></tr></thead>
           <tbody>
             ${resumen.movimientos.slice(0, 10).map(m => {
-              let tipoTexto = ""
-              if (m.tipo === "egreso") tipoTexto = "Retiro"
-              else if (m.tipo === "parqueo") tipoTexto = m.metodo_pago === "tarjeta" ? "Pq(T)" : "Pq"
-              else if (m.tipo === "efectivo_manual") tipoTexto = "Manual"
-              else if (m.tipo === "servicio") tipoTexto = m.metodo_pago === "tarjeta" ? "Sv(T)" : "Sv"
-              
-              const montoDisplay = m.tipo === "egreso" 
-                ? `-$${Math.abs(m.monto).toFixed(2)}` 
-                : `$${m.monto.toFixed(2)}`
-              
-              return `
-                <tr>
-                  <td>${new Date(m.fecha).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}</td>
-                  <td>${tipoTexto}</td>
-                  <td>${m.descripcion.substring(0, 12)}</td>
-                  <td>${montoDisplay}</td>
-                </tr>
-              `
-            }).join("")}
+      let tipoTexto = ""
+      if (m.tipo === "egreso") tipoTexto = "Retiro"
+      else if (m.tipo === "parqueo") tipoTexto = m.metodo_pago === "tarjeta" ? "Pq(T)" : m.metodo_pago === "transferencia" ? "Pq(Tr)" : "Pq"
+      else if (m.tipo === "efectivo_manual") tipoTexto = "Manual"
+      else if (m.tipo === "servicio") tipoTexto = m.metodo_pago === "tarjeta" ? "Sv(T)" : m.metodo_pago === "transferencia" ? "Sv(Tr)" : "Sv"
+
+      const montoDisplay = m.tipo === "egreso" ? `-$${Math.abs(m.monto).toFixed(2)}` : `$${m.monto.toFixed(2)}`
+      return `<tr><td>${new Date(m.fecha).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}</td><td>${tipoTexto}</td><td>${m.descripcion.substring(0, 12)}</td><td>${montoDisplay}</td></tr>`
+    }).join("")}
           </tbody>
         </table>
         
@@ -754,292 +724,72 @@ function TicketCierreDialog({
           <DialogTitle>Resumen de cierre</DialogTitle>
           <DialogDescription>La caja ha sido cerrada exitosamente.</DialogDescription>
         </DialogHeader>
-
-        {/* Vista previa del ticket - TODO EN NEGRITA */}
         <div className="font-mono text-sm space-y-3 border rounded-lg p-4 bg-background max-h-[60vh] overflow-y-auto" style={{ color: 'black', fontWeight: 'bold' }}>
-          {/* HEADER */}
           <div className="text-center border-b-2 border-dashed pb-3">
-            <p className="text-lg text-black" style={{fontWeight: 'bold'}}>{HOTEL_INFO.nombre}</p>
-            <p className="text-xs text-black" style={{fontWeight: 'bold'}}>{HOTEL_INFO.direccion}</p>
-            <p className="text-xs text-black" style={{fontWeight: 'bold'}}>CIERRE DE CAJA</p>
-            <p className="text-xs text-black" style={{fontWeight: 'bold'}}>{new Date(resumen.fechaCierre).toLocaleString("es-EC")}</p>
+            <p className="text-lg text-black" style={{ fontWeight: 'bold' }}>{HOTEL_INFO.nombre}</p>
+            <p className="text-xs text-black" style={{ fontWeight: 'bold' }}>{HOTEL_INFO.direccion}</p>
+            <p className="text-xs text-black" style={{ fontWeight: 'bold' }}>CIERRE DE CAJA</p>
+            <p className="text-xs text-black" style={{ fontWeight: 'bold' }}>{new Date(resumen.fechaCierre).toLocaleString("es-EC")}</p>
           </div>
-
-          {/* INFORMACIÓN GENERAL */}
           <div className="space-y-1">
-            <div className="flex justify-between text-sm">
-              <span className="text-black" style={{fontWeight: 'bold'}}>Operador:</span>
-              <span className="text-black" style={{fontWeight: 'bold'}}>{resumen.operador}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-black" style={{fontWeight: 'bold'}}>Monto inicial:</span>
-              <span className="text-black" style={{fontWeight: 'bold'}}>${resumen.montoInicial.toFixed(2)}</span>
-            </div>
+            <div className="flex justify-between text-sm"><span className="text-black" style={{ fontWeight: 'bold' }}>Operador:</span><span className="text-black" style={{ fontWeight: 'bold' }}>{resumen.operador}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-black" style={{ fontWeight: 'bold' }}>Monto inicial:</span><span className="text-black" style={{ fontWeight: 'bold' }}>${resumen.montoInicial.toFixed(2)}</span></div>
           </div>
-
           <div className="border-t border-dashed my-2"></div>
-
-          {/* ========== DESGLOSE DE INGRESOS ========== */}
           <div className="space-y-2">
-            <p className="text-xs text-black" style={{fontWeight: 'bold'}}>DESGLOSE DE INGRESOS</p>
-            
-            {/* PARQUEO */}
+            <p className="text-xs text-black" style={{ fontWeight: 'bold' }}>DESGLOSE DE INGRESOS</p>
             {(resumen.desglose?.parqueo.total || 0) > 0 && (
               <div className="space-y-0.5">
-                <div className="flex justify-between text-sm">
-                  <span className="text-black" style={{fontWeight: 'bold'}}>PARQUEO:</span>
-                  <span className="text-black" style={{fontWeight: 'bold'}}>${(resumen.desglose?.parqueo.total || 0).toFixed(2)}</span>
-                </div>
-                {(resumen.desglose?.parqueo.efectivo || 0) > 0 && (
-                  <div className="flex justify-between text-xs pl-2">
-                    <span className="text-black" style={{fontWeight: 'bold'}}>  - Efectivo:</span>
-                    <span className="text-black" style={{fontWeight: 'bold'}}>+${(resumen.desglose?.parqueo.efectivo || 0).toFixed(2)}</span>
-                  </div>
-                )}
-                {(resumen.desglose?.parqueo.tarjeta || 0) > 0 && (
-                  <div className="flex justify-between text-xs pl-2">
-                    <span className="text-black" style={{fontWeight: 'bold'}}>  - Tarjeta:</span>
-                    <span className="text-black" style={{fontWeight: 'bold'}}>${(resumen.desglose?.parqueo.tarjeta || 0).toFixed(2)}</span>
-                  </div>
-                )}
+                <div className="flex justify-between text-sm"><span className="text-black" style={{ fontWeight: 'bold' }}>PARQUEO:</span><span className="text-black" style={{ fontWeight: 'bold' }}>${(resumen.desglose?.parqueo.total || 0).toFixed(2)}</span></div>
+                {(resumen.desglose?.parqueo.efectivo || 0) > 0 && <div className="flex justify-between text-xs pl-2"><span className="text-black" style={{ fontWeight: 'bold' }}>  - Efectivo:</span><span className="text-black" style={{ fontWeight: 'bold' }}>+${(resumen.desglose?.parqueo.efectivo || 0).toFixed(2)}</span></div>}
+                {(resumen.desglose?.parqueo.tarjeta || 0) > 0 && <div className="flex justify-between text-xs pl-2"><span className="text-black" style={{ fontWeight: 'bold' }}>  - Tarjeta:</span><span className="text-black" style={{ fontWeight: 'bold' }}>${(resumen.desglose?.parqueo.tarjeta || 0).toFixed(2)}</span></div>}
+                {(resumen.desglose?.parqueo.transferencia || 0) > 0 && <div className="flex justify-between text-xs pl-2"><span className="text-black" style={{ fontWeight: 'bold' }}>  - Transferencia:</span><span className="text-black" style={{ fontWeight: 'bold' }}>${(resumen.desglose?.parqueo.transferencia || 0).toFixed(2)}</span></div>}
               </div>
             )}
-
-            {/* SERVICIOS */}
             {(resumen.desglose?.servicios.total || 0) > 0 && (
               <div className="space-y-0.5">
-                <div className="flex justify-between text-sm">
-                  <span className="text-black" style={{fontWeight: 'bold'}}>SERVICIOS:</span>
-                  <span className="text-black" style={{fontWeight: 'bold'}}>${(resumen.desglose?.servicios.total || 0).toFixed(2)}</span>
-                </div>
-                {(resumen.desglose?.servicios.efectivo || 0) > 0 && (
-                  <div className="flex justify-between text-xs pl-2">
-                    <span className="text-black" style={{fontWeight: 'bold'}}>  - Efectivo:</span>
-                    <span className="text-black" style={{fontWeight: 'bold'}}>+${(resumen.desglose?.servicios.efectivo || 0).toFixed(2)}</span>
-                  </div>
-                )}
-                {(resumen.desglose?.servicios.tarjeta || 0) > 0 && (
-                  <div className="flex justify-between text-xs pl-2">
-                    <span className="text-black" style={{fontWeight: 'bold'}}>  - Tarjeta:</span>
-                    <span className="text-black" style={{fontWeight: 'bold'}}>${(resumen.desglose?.servicios.tarjeta || 0).toFixed(2)}</span>
-                  </div>
-                )}
+                <div className="flex justify-between text-sm"><span className="text-black" style={{ fontWeight: 'bold' }}>SERVICIOS:</span><span className="text-black" style={{ fontWeight: 'bold' }}>${(resumen.desglose?.servicios.total || 0).toFixed(2)}</span></div>
+                {(resumen.desglose?.servicios.efectivo || 0) > 0 && <div className="flex justify-between text-xs pl-2"><span className="text-black" style={{ fontWeight: 'bold' }}>  - Efectivo:</span><span className="text-black" style={{ fontWeight: 'bold' }}>+${(resumen.desglose?.servicios.efectivo || 0).toFixed(2)}</span></div>}
+                {(resumen.desglose?.servicios.tarjeta || 0) > 0 && <div className="flex justify-between text-xs pl-2"><span className="text-black" style={{ fontWeight: 'bold' }}>  - Tarjeta:</span><span className="text-black" style={{ fontWeight: 'bold' }}>${(resumen.desglose?.servicios.tarjeta || 0).toFixed(2)}</span></div>}
+                {(resumen.desglose?.servicios.transferencia || 0) > 0 && <div className="flex justify-between text-xs pl-2"><span className="text-black" style={{ fontWeight: 'bold' }}>  - Transferencia:</span><span className="text-black" style={{ fontWeight: 'bold' }}>${(resumen.desglose?.servicios.transferencia || 0).toFixed(2)}</span></div>}
               </div>
             )}
-
-            {/* HOTEL */}
             {(resumen.desglose?.hotel.total || 0) > 0 && (
               <div className="space-y-0.5">
-                <div className="flex justify-between text-sm">
-                  <span className="text-black" style={{fontWeight: 'bold'}}>HOTEL:</span>
-                  <span className="text-black" style={{fontWeight: 'bold'}}>${(resumen.desglose?.hotel.total || 0).toFixed(2)}</span>
-                </div>
-                {(resumen.desglose?.hotel.efectivo || 0) > 0 && (
-                  <div className="flex justify-between text-xs pl-2">
-                    <span className="text-black" style={{fontWeight: 'bold'}}>  - Efectivo:</span>
-                    <span className="text-black" style={{fontWeight: 'bold'}}>+${(resumen.desglose?.hotel.efectivo || 0).toFixed(2)}</span>
-                  </div>
-                )}
-                {(resumen.desglose?.hotel.tarjeta || 0) > 0 && (
-                  <div className="flex justify-between text-xs pl-2">
-                    <span className="text-black" style={{fontWeight: 'bold'}}>  - Tarjeta:</span>
-                    <span className="text-black" style={{fontWeight: 'bold'}}>${(resumen.desglose?.hotel.tarjeta || 0).toFixed(2)}</span>
-                  </div>
-                )}
+                <div className="flex justify-between text-sm"><span className="text-black" style={{ fontWeight: 'bold' }}>HOTEL:</span><span className="text-black" style={{ fontWeight: 'bold' }}>${(resumen.desglose?.hotel.total || 0).toFixed(2)}</span></div>
+                {(resumen.desglose?.hotel.efectivo || 0) > 0 && <div className="flex justify-between text-xs pl-2"><span className="text-black" style={{ fontWeight: 'bold' }}>  - Efectivo:</span><span className="text-black" style={{ fontWeight: 'bold' }}>+${(resumen.desglose?.hotel.efectivo || 0).toFixed(2)}</span></div>}
+                {(resumen.desglose?.hotel.tarjeta || 0) > 0 && <div className="flex justify-between text-xs pl-2"><span className="text-black" style={{ fontWeight: 'bold' }}>  - Tarjeta:</span><span className="text-black" style={{ fontWeight: 'bold' }}>${(resumen.desglose?.hotel.tarjeta || 0).toFixed(2)}</span></div>}
+                {(resumen.desglose?.hotel.transferencia || 0) > 0 && <div className="flex justify-between text-xs pl-2"><span className="text-black" style={{ fontWeight: 'bold' }}>  - Transferencia:</span><span className="text-black" style={{ fontWeight: 'bold' }}>${(resumen.desglose?.hotel.transferencia || 0).toFixed(2)}</span></div>}
               </div>
             )}
-
-            {/* BAÑO */}
             {(resumen.desglose?.bano.total || 0) > 0 && (
               <div className="space-y-0.5">
-                <div className="flex justify-between text-sm">
-                  <span className="text-black" style={{fontWeight: 'bold'}}>BAÑO:</span>
-                  <span className="text-black" style={{fontWeight: 'bold'}}>${(resumen.desglose?.bano.total || 0).toFixed(2)}</span>
-                </div>
-                {(resumen.desglose?.bano.efectivo || 0) > 0 && (
-                  <div className="flex justify-between text-xs pl-2">
-                    <span className="text-black" style={{fontWeight: 'bold'}}>  - Efectivo:</span>
-                    <span className="text-black" style={{fontWeight: 'bold'}}>+${(resumen.desglose?.bano.efectivo || 0).toFixed(2)}</span>
-                  </div>
-                )}
-                {(resumen.desglose?.bano.tarjeta || 0) > 0 && (
-                  <div className="flex justify-between text-xs pl-2">
-                    <span className="text-black" style={{fontWeight: 'bold'}}>  - Tarjeta:</span>
-                    <span className="text-black" style={{fontWeight: 'bold'}}>${(resumen.desglose?.bano.tarjeta || 0).toFixed(2)}</span>
-                  </div>
-                )}
+                <div className="flex justify-between text-sm"><span className="text-black" style={{ fontWeight: 'bold' }}>BAÑO:</span><span className="text-black" style={{ fontWeight: 'bold' }}>${(resumen.desglose?.bano.total || 0).toFixed(2)}</span></div>
+                {(resumen.desglose?.bano.efectivo || 0) > 0 && <div className="flex justify-between text-xs pl-2"><span className="text-black" style={{ fontWeight: 'bold' }}>  - Efectivo:</span><span className="text-black" style={{ fontWeight: 'bold' }}>+${(resumen.desglose?.bano.efectivo || 0).toFixed(2)}</span></div>}
+                {(resumen.desglose?.bano.tarjeta || 0) > 0 && <div className="flex justify-between text-xs pl-2"><span className="text-black" style={{ fontWeight: 'bold' }}>  - Tarjeta:</span><span className="text-black" style={{ fontWeight: 'bold' }}>${(resumen.desglose?.bano.tarjeta || 0).toFixed(2)}</span></div>}
+                {(resumen.desglose?.bano.transferencia || 0) > 0 && <div className="flex justify-between text-xs pl-2"><span className="text-black" style={{ fontWeight: 'bold' }}>  - Transferencia:</span><span className="text-black" style={{ fontWeight: 'bold' }}>${(resumen.desglose?.bano.transferencia || 0).toFixed(2)}</span></div>}
               </div>
             )}
-
-            {/* MANUALES */}
-            {(resumen.desglose?.manuales || 0) > 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-black" style={{fontWeight: 'bold'}}>MANUALES:</span>
-                <span className="text-black" style={{fontWeight: 'bold'}}>+${(resumen.desglose?.manuales || 0).toFixed(2)}</span>
-              </div>
-            )}
-
-            {/* EGRESOS */}
-            {(resumen.totalEgresos || 0) > 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-black" style={{fontWeight: 'bold'}}>EGRESOS (RETIROS):</span>
-                <span className="text-black" style={{fontWeight: 'bold'}}>-${(resumen.totalEgresos || 0).toFixed(2)}</span>
-              </div>
-            )}
+            {(resumen.desglose?.manuales || 0) > 0 && <div className="flex justify-between text-sm"><span className="text-black" style={{ fontWeight: 'bold' }}>MANUALES:</span><span className="text-black" style={{ fontWeight: 'bold' }}>+${(resumen.desglose?.manuales || 0).toFixed(2)}</span></div>}
+            {(resumen.totalEgresos || 0) > 0 && <div className="flex justify-between text-sm"><span className="text-black" style={{ fontWeight: 'bold' }}>EGRESOS (RETIROS):</span><span className="text-black" style={{ fontWeight: 'bold' }}>-${(resumen.totalEgresos || 0).toFixed(2)}</span></div>}
           </div>
-
           <div className="border-t border-dashed my-2"></div>
-
-          {/* RESUMEN DE CAJA */}
           <div className="space-y-1">
-            <div className="flex justify-between text-sm">
-              <span className="text-black" style={{fontWeight: 'bold'}}>Total ingresos efectivo:</span>
-              <span className="text-black" style={{fontWeight: 'bold'}}>+$${resumen.totalIngresos.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-black" style={{fontWeight: 'bold'}}>SALDO NETO:</span>
-              <span className="text-black" style={{fontWeight: 'bold'}}>$${(resumen.saldoNeto || resumen.totalIngresos).toFixed(2)}</span>
-            </div>
+            <div className="flex justify-between text-sm"><span className="text-black" style={{ fontWeight: 'bold' }}>Total ingresos efectivo:</span><span className="text-black" style={{ fontWeight: 'bold' }}>+$${resumen.totalIngresos.toFixed(2)}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-black" style={{ fontWeight: 'bold' }}>SALDO NETO:</span><span className="text-black" style={{ fontWeight: 'bold' }}>$${(resumen.saldoNeto || resumen.totalIngresos).toFixed(2)}</span></div>
           </div>
-
-          <div className="border-t border-dashed my-2"></div>
-
-          {/* DESGLOSE DE DENOMINACIONES */}
-          {resumen.denominaciones && resumen.denominaciones.items.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs text-black" style={{fontWeight: 'bold'}}>DESGLOSE DE EFECTIVO FISICO</p>
-              
-              {/* Billetes */}
-              {resumen.denominaciones.items.filter(d => d.denominacion >= 1).length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-xs text-black" style={{fontWeight: 'bold'}}>BILLETES:</p>
-                  {resumen.denominaciones.items
-                    .filter(d => d.denominacion >= 1)
-                    .sort((a, b) => b.denominacion - a.denominacion)
-                    .map((d, i) => (
-                      <div key={i} className="flex justify-between text-xs">
-                        <span className="text-black" style={{fontWeight: 'bold'}}>${d.denominacion.toFixed(2)} x {d.cantidad}</span>
-                        <span className="text-black" style={{fontWeight: 'bold'}}>${d.subtotal.toFixed(2)}</span>
-                      </div>
-                    ))}
-                  <div className="flex justify-between text-xs border-t border-dashed pt-1 mt-1">
-                    <span className="text-black" style={{fontWeight: 'bold'}}>Total billetes:</span>
-                    <span className="text-black" style={{fontWeight: 'bold'}}>
-                      ${resumen.denominaciones.items
-                        .filter(d => d.denominacion >= 1)
-                        .reduce((sum, d) => sum + d.subtotal, 0)
-                        .toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Monedas */}
-              {resumen.denominaciones.items.filter(d => d.denominacion < 1).length > 0 && (
-                <div className="space-y-1 mt-2">
-                  <p className="text-xs text-black" style={{fontWeight: 'bold'}}>MONEDAS:</p>
-                  {resumen.denominaciones.items
-                    .filter(d => d.denominacion < 1)
-                    .sort((a, b) => b.denominacion - a.denominacion)
-                    .map((d, i) => (
-                      <div key={i} className="flex justify-between text-xs">
-                        <span className="text-black" style={{fontWeight: 'bold'}}>${d.denominacion.toFixed(2)} x {d.cantidad}</span>
-                        <span className="text-black" style={{fontWeight: 'bold'}}>${d.subtotal.toFixed(2)}</span>
-                      </div>
-                    ))}
-                  <div className="flex justify-between text-xs border-t border-dashed pt-1 mt-1">
-                    <span className="text-black" style={{fontWeight: 'bold'}}>Total monedas:</span>
-                    <span className="text-black" style={{fontWeight: 'bold'}}>
-                      ${resumen.denominaciones.items
-                        .filter(d => d.denominacion < 1)
-                        .reduce((sum, d) => sum + d.subtotal, 0)
-                        .toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
           <div className="border-t-2 border-dashed my-2"></div>
-
-          {/* TOTALES FINALES - AHORA CON TARJETA */}
           <div className="space-y-1">
-            <div className="flex justify-between text-sm">
-              <span className="text-black" style={{fontWeight: 'bold'}}>Monto esperado:</span>
-              <span className="text-black" style={{fontWeight: 'bold'}}>$${resumen.montoEsperado.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-black" style={{fontWeight: 'bold'}}>Monto fisico:</span>
-              <span className="text-black" style={{fontWeight: 'bold'}}>$${resumen.montoFisico.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-black" style={{fontWeight: 'bold'}}>Total tarjeta:</span>
-              <span className="text-black" style={{fontWeight: 'bold'}}>$${totalTarjeta.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-base">
-              <span className="text-black" style={{fontWeight: 'bold'}}>Diferencia:</span>
-              <span className="text-black" style={{fontWeight: 'bold'}}>{resumen.diferencia >= 0 ? '+' : ''}{resumen.diferencia.toFixed(2)}</span>
-            </div>
+            <div className="flex justify-between text-sm"><span className="text-black" style={{ fontWeight: 'bold' }}>Monto esperado:</span><span className="text-black" style={{ fontWeight: 'bold' }}>$${resumen.montoEsperado.toFixed(2)}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-black" style={{ fontWeight: 'bold' }}>Monto fisico:</span><span className="text-black" style={{ fontWeight: 'bold' }}>$${resumen.montoFisico.toFixed(2)}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-black" style={{ fontWeight: 'bold' }}>Total tarjeta:</span><span className="text-black" style={{ fontWeight: 'bold' }}>$${totalTarjeta.toFixed(2)}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-black" style={{ fontWeight: 'bold' }}>Total transferencia:</span><span className="text-black" style={{ fontWeight: 'bold' }}>$${totalTransferencia.toFixed(2)}</span></div>
+            <div className="flex justify-between text-base"><span className="text-black" style={{ fontWeight: 'bold' }}>Diferencia:</span><span className="text-black" style={{ fontWeight: 'bold' }}>{resumen.diferencia >= 0 ? '+' : ''}{resumen.diferencia.toFixed(2)}</span></div>
           </div>
-
-          {/* MOVIMIENTOS RECIENTES */}
-          {resumen.movimientos.length > 0 && (
-            <div className="border-t border-dashed pt-2">
-              <p className="text-xs text-black mb-2" style={{fontWeight: 'bold'}}>
-                MOVIMIENTOS ({resumen.movimientos.length})
-              </p>
-              <div className="space-y-1.5 max-h-[150px] overflow-y-auto">
-                {resumen.movimientos.slice(0, 8).map((m) => {
-                  let tipoDisplay = ""
-                  let montoDisplay = m.monto
-                  let signo = "+"
-
-                  if (m.tipo === "egreso") {
-                    tipoDisplay = "Retiro"
-                    montoDisplay = Math.abs(m.monto)
-                    signo = "-"
-                  } else if (m.tipo === "parqueo") {
-                    tipoDisplay = m.metodo_pago === "tarjeta" ? "Pq(T)" : "Parqueo"
-                  } else if (m.tipo === "efectivo_manual") {
-                    tipoDisplay = "Manual"
-                  } else if (m.tipo === "servicio") {
-                    tipoDisplay = m.metodo_pago === "tarjeta" ? "Sv(T)" : "Servicio"
-                  }
-
-                  return (
-                    <div key={m.id} className="flex justify-between text-xs">
-                      <span className="text-black w-12" style={{fontWeight: 'bold'}}>
-                        {new Date(m.fecha).toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" })}
-                      </span>
-                      <span className="text-black w-14" style={{fontWeight: 'bold'}}>{tipoDisplay}</span>
-                      <span className="text-black truncate max-w-[100px]" style={{fontWeight: 'bold'}}>
-                        {m.descripcion.substring(0, 12)}
-                      </span>
-                      <span className="text-black" style={{fontWeight: 'bold'}}>
-                        {signo}${montoDisplay.toFixed(2)}
-                      </span>
-                    </div>
-                  )
-                })}
-                {resumen.movimientos.length > 8 && (
-                  <p className="text-[10px] text-black text-center mt-1" style={{fontWeight: 'bold'}}>
-                    ... y {resumen.movimientos.length - 8} movimientos mas
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
         </div>
-
         <DialogFooter className="gap-2">
-          <Button variant="outline" className="bg-transparent" onClick={onClose}>
-            Cerrar
-          </Button>
-          <Button onClick={handleImprimir} className="gap-2">
-            <Printer className="h-4 w-4" />
-            Imprimir ticket
-          </Button>
+          <Button variant="outline" className="bg-transparent" onClick={onClose}>Cerrar</Button>
+          <Button onClick={handleImprimir} className="gap-2"><Printer className="h-4 w-4" />Imprimir ticket</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1083,7 +833,6 @@ function CajaDialog({
   }, [open])
 
   const movimientos = movimientosData?.movimientos ?? []
-
 
   const saldoDisponible = estadoCaja?.saldo_actual ??
     ((estadoCaja?.caja_actual?.monto_inicial ?? 0) +
@@ -1159,7 +908,21 @@ function CajaDialog({
               </div>
             </div>
 
-            {/* EGRESOS Y SALDO NETO */}
+            {(movimientosData.total_transferencia > 0) && (
+              <div className="flex gap-2">
+                <div className="flex-1 rounded-lg border bg-card p-2 flex items-center gap-2">
+                  <Landmark className="h-4 w-4 text-purple-600 shrink-0" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Transferencia (no entra)</p>
+                    <p className="text-sm font-bold text-purple-600">${movimientosData.total_transferencia.toFixed(2)}</p>
+                  </div>
+                </div>
+                <div className="flex-1 rounded-lg border bg-card p-2 flex items-center gap-2">
+                  {/* Espacio vacío para mantener el layout */}
+                </div>
+              </div>
+            )}
+
             {movimientosData.total_egresos > 0 && (
               <div className="flex gap-2">
                 <div className="flex-1 rounded-lg border bg-card p-2 flex items-center gap-2">
@@ -1231,7 +994,6 @@ function CajaDialog({
               operador={operador}
               onAgregado={() => { cargarMovimientos(); onRefresh() }}
             />
-            {/* ✅ NUEVO: Botón de Retirar efectivo */}
             <RetirarEfectivoDialog
               operador={operador}
               onEgresoRegistrado={() => { cargarMovimientos(); onRefresh() }}
@@ -1239,7 +1001,6 @@ function CajaDialog({
             />
           </div>
           <div className="flex gap-2 sm:ml-auto">
-
             <CierreCajaDialog
               estadoCaja={estadoCaja}
               operador={operador}
@@ -1294,12 +1055,10 @@ export function Dashboard() {
                     <span className="text-xs text-slate-300">Caja</span>
                     <span className="text-sm font-bold text-green-400">
                       ${(estadoCaja.saldo_actual ?? estadoCaja.caja_actual?.monto_inicial ?? 0).toFixed(2)}
-                      {/* 👈 AHORA MUESTRA $180.00 */}
                     </span>
                   </div>
                   <Wallet className="h-5 w-5 text-green-400" />
                 </div>
-
                 <button
                   onClick={handleRefrescar}
                   className="p-1.5 rounded hover:bg-white/10 transition-colors"
@@ -1323,7 +1082,7 @@ export function Dashboard() {
       <main className="w-full flex justify-center py-6">
         <div className="w-full max-w-7xl px-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-            <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid bg-card shadow-sm border border-border">
+            <TabsList className="grid w-full grid-cols-6 lg:w-auto lg:inline-grid bg-card shadow-sm border border-border">
               <TabsTrigger value="dashboard" className="gap-2 data-[state=active]:bg-[#2c3e5a] data-[state=active]:text-white">
                 <LayoutDashboard className="h-4 w-4" /><span className="hidden sm:inline">Parqueadero</span>
               </TabsTrigger>
@@ -1335,6 +1094,10 @@ export function Dashboard() {
               </TabsTrigger>
               <TabsTrigger value="reportes" className="gap-2 data-[state=active]:bg-[#2c3e5a] data-[state=active]:text-white">
                 <BarChart3 className="h-4 w-4" /><span className="hidden sm:inline">Reportes</span>
+              </TabsTrigger>
+              <TabsTrigger value="cierres" className="gap-2 data-[state=active]:bg-[#2c3e5a] data-[state=active]:text-white">
+                <History className="h-4 w-4" />
+                <span className="hidden sm:inline">Cierres</span>
               </TabsTrigger>
               <TabsTrigger value="configuracion" className="gap-2 data-[state=active]:bg-[#2c3e5a] data-[state=active]:text-white">
                 <Settings className="h-4 w-4" /><span className="hidden sm:inline">Config</span>
@@ -1400,7 +1163,6 @@ export function Dashboard() {
                         <p className="text-sm text-amber-700">Saldo en caja</p>
                         <p className="text-2xl font-bold text-amber-600">
                           ${(estadoCaja.saldo_actual ?? estadoCaja.caja_actual?.monto_inicial ?? 0).toFixed(2)}
-                          {/* 👈 AHORA MUESTRA $180.00 */}
                         </p>
                         <p className="text-xs text-amber-600/70 mt-0.5">Clic para ver detalle →</p>
                       </div>
@@ -1419,6 +1181,9 @@ export function Dashboard() {
             <TabsContent value="servicios"><ServicesPanel /></TabsContent>
             <TabsContent value="historial"><HistoryTable /></TabsContent>
             <TabsContent value="reportes"><DailyReport /></TabsContent>
+            <TabsContent value="cierres">
+              <HistorialCierres refreshTrigger={refrescando ? 0 : 1} />
+            </TabsContent>
             <TabsContent value="configuracion"><ConfigPanel /></TabsContent>
           </Tabs>
         </div>

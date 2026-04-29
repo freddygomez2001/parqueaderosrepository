@@ -134,8 +134,8 @@ export async function eliminarProducto(productoId) {
  *   - Producto:  { producto_id: number, cantidad: number }
  *   - Baño:      { tipo_especial: "bano", personas: number }
  *   - Hotel:     { tipo_especial: "hotel", habitacion: string, monto_hotel: number }
- * @param {"efectivo"|"tarjeta"} metodoPago
-  */
+ * @param {"efectivo"|"tarjeta"|"transferencia"} metodoPago
+ */
 export async function crearVenta(items, metodoPago = "efectivo") {
   try {
     // Normalizar items según su tipo
@@ -143,7 +143,7 @@ export async function crearVenta(items, metodoPago = "efectivo") {
       if (item.tipo_especial === "bano") {
         return {
           tipo_especial: "bano",
-          personas: Number(item.personas) || 1, // 🔥 FIX REAL
+          personas: Number(item.personas) || 1,
         };
       }
 
@@ -152,7 +152,6 @@ export async function crearVenta(items, metodoPago = "efectivo") {
           tipo_especial: "hotel",
           habitacion: item.habitacion,
           monto_hotel: parseFloat(item.monto_hotel),
-          // NO enviar cantidad para servicios especiales
         };
       }
       // Producto normal - solo estos necesitan cantidad
@@ -173,7 +172,6 @@ export async function crearVenta(items, metodoPago = "efectivo") {
 
     if (!response.ok) {
       const errorData = await response.json();
-      // Mejorar el mensaje de error para debugging
       const errorMsg = typeof errorData.detail === 'string'
         ? errorData.detail
         : JSON.stringify(errorData.detail);
@@ -186,6 +184,7 @@ export async function crearVenta(items, metodoPago = "efectivo") {
     throw error;
   }
 }
+
 /**
  * Obtener ventas con filtros
  * @param {string|null} fecha - Fecha en formato YYYY-MM-DD
@@ -263,3 +262,4 @@ export function formatearMoneda(monto) {
     currency: "USD",
   }).format(monto);
 }
+

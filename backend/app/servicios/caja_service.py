@@ -10,7 +10,7 @@ from app.modelos.historial_factura import HistorialFactura
 from app.modelos.venta_servicio import VentaServicio
 from app.modelos.movimiento_manual import MovimientoManualCaja
 from app.modelos.denominacion_caja import DenominacionCaja
-from app.modelos.egreso_caja import EgresoCaja  # 👈 NUEVO MODELO
+from app.modelos.egreso_caja import EgresoCaja
 
 
 class CajaService:
@@ -46,7 +46,7 @@ class CajaService:
             and_(
                 HistorialFactura.fecha_hora_salida >= fecha_apertura,
                 HistorialFactura.es_no_pagado == False,
-                HistorialFactura.metodo_pago == "efectivo"
+                HistorialFactura.metodo_pago == "efectivo"  # ✅ SOLO efectivo
             )
         ).scalar() or 0
 
@@ -64,14 +64,15 @@ class CajaService:
         ).scalar() or 0
 
         # =========================================
-        # ✅ SERVICIOS - EFECTIVO (SÍ suma a caja)
+        # ✅ SERVICIOS - SOLO EFECTIVO (SÍ suma a caja)
+        # 🔥 CORREGIDO: Ahora SOLO efectivo suma, tarjeta y transferencia NO
         # =========================================
         total_servicios_efectivo = db.query(
             func.sum(VentaServicio.total)
         ).filter(
             and_(
                 VentaServicio.fecha >= fecha_apertura,
-                VentaServicio.metodo_pago != "tarjeta"
+                VentaServicio.metodo_pago == "efectivo"  # ✅ SOLO efectivo suma a caja
             )
         ).scalar() or 0
 
@@ -84,6 +85,18 @@ class CajaService:
             and_(
                 VentaServicio.fecha >= fecha_apertura,
                 VentaServicio.metodo_pago == "tarjeta"
+            )
+        ).scalar() or 0
+
+        # =========================================
+        # 📊 SERVICIOS - TRANSFERENCIA (NO suma a caja, solo estadísticas)
+        # =========================================
+        total_servicios_transferencia = db.query(
+            func.sum(VentaServicio.total)
+        ).filter(
+            and_(
+                VentaServicio.fecha >= fecha_apertura,
+                VentaServicio.metodo_pago == "transferencia"
             )
         ).scalar() or 0
 
@@ -114,8 +127,9 @@ class CajaService:
             # 📊 ESTADÍSTICAS (No suman a caja)
             "total_parqueo_tarjeta": float(total_parqueo_tarjeta),
             "total_servicios_tarjeta": float(total_servicios_tarjeta),
+            "total_servicios_transferencia": float(total_servicios_transferencia),
             "total_parqueo_total": float(total_parqueo_efectivo + total_parqueo_tarjeta),
-            "total_servicios_total": float(total_servicios_efectivo + total_servicios_tarjeta),
+            "total_servicios_total": float(total_servicios_efectivo + total_servicios_tarjeta + total_servicios_transferencia),
         }
 
     # =========================================
@@ -137,33 +151,20 @@ class CajaService:
 
     @staticmethod
     def guardar_denominaciones(db: Session, caja_id: int, tipo: str, denominaciones_data: Any):
-        """
-        Guarda el detalle de billetes y monedas para apertura o cierre de caja
-        
-        Args:
-            db: Sesión de base de datos
-            caja_id: ID de la caja
-            tipo: 'apertura' o 'cierre'
-            denominaciones_data: Datos de denominaciones (Pydantic o dict)
-        """
+        """Guarda el detalle de billetes y monedas para apertura o cierre de caja"""
         from app.modelos.denominacion_caja import DenominacionCaja
         
         denominaciones_data = CajaService._convertir_a_dict(denominaciones_data)
         
-        # Eliminar denominaciones existentes del mismo tipo para esta caja
         db.query(DenominacionCaja).filter(
             DenominacionCaja.caja_id == caja_id,
             DenominacionCaja.tipo == tipo
         ).delete()
         
-        # Si no hay items o el total es 0, no guardar nada
         if not denominaciones_data or not denominaciones_data.get('items'):
             db.commit()
-            print(f"⚠️ No hay items para guardar en caja {caja_id}, tipo {tipo}")
             return
         
-        # Guardar nuevas denominaciones
-        items_guardados = 0
         for item in denominaciones_data.get('items', []):
             if item.get('cantidad', 0) > 0:
                 denominacion = DenominacionCaja(
@@ -174,27 +175,12 @@ class CajaService:
                     subtotal=item['subtotal']
                 )
                 db.add(denominacion)
-                items_guardados += 1
         
         db.commit()
-        
-        print(f"✅ Denominaciones de {tipo} guardadas para caja {caja_id}")
-        print(f"   Total: ${denominaciones_data.get('total', 0):.2f}")
-        print(f"   Items guardados: {items_guardados}")
 
     @staticmethod
     def obtener_denominaciones(db: Session, caja_id: int) -> dict:
-        """
-        Obtiene las denominaciones de apertura y cierre de una caja
-        
-        Returns:
-            dict: {
-                'apertura': [{'denominacion': float, 'cantidad': int, 'subtotal': float, ...}],
-                'cierre': [...],
-                'total_apertura': float,
-                'total_cierre': float
-            }
-        """
+        """Obtiene las denominaciones de apertura y cierre de una caja"""
         from app.modelos.denominacion_caja import DenominacionCaja
         
         denominaciones = db.query(DenominacionCaja).filter(
@@ -225,16 +211,7 @@ class CajaService:
 
     @staticmethod
     def abrir_caja(db: Session, monto_inicial: float, operador: str, notas: Optional[str] = None, denominaciones: Optional[Any] = None) -> Caja:
-        """
-        Abre una nueva caja
-        
-        Args:
-            db: Sesión de base de datos
-            monto_inicial: Monto inicial en efectivo
-            operador: Nombre del operador
-            notas: Notas opcionales
-            denominaciones: Detalle de billetes y monedas (opcional)
-        """
+        """Abre una nueva caja"""
         if CajaService.verificar_caja_abierta(db):
             raise ValueError("Ya existe una caja abierta")
 
@@ -264,10 +241,6 @@ class CajaService:
             CajaService.guardar_denominaciones(db, caja.id, 'apertura', denom_dict)
             db.refresh(caja)
         
-        print(f"✅ Caja abierta - ID: {caja.id}, Operador: {operador}, Monto inicial: ${monto_inicial:.2f}")
-        if denom_dict:
-            print(f"   Denominaciones guardadas: {len(denom_dict.get('items', []))} items")
-        
         return caja
 
     # =========================
@@ -276,16 +249,7 @@ class CajaService:
 
     @staticmethod
     def cerrar_caja(db: Session, monto_final: float, operador: Optional[str] = None, notas: Optional[str] = None, denominaciones: Optional[Any] = None) -> Caja:
-        """
-        Cierra la caja actual
-        
-        Args:
-            db: Sesión de base de datos
-            monto_final: Monto físico contado en caja
-            operador: Nombre del operador (opcional)
-            notas: Notas opcionales
-            denominaciones: Detalle de billetes y monedas contados (opcional)
-        """
+        """Cierra la caja actual"""
         caja = CajaService.verificar_caja_abierta(db)
         if not caja:
             raise ValueError("No hay una caja abierta")
@@ -297,21 +261,15 @@ class CajaService:
             if abs(total_denominaciones - monto_final) > 0.01:
                 raise ValueError(f"El monto final (${monto_final:.2f}) no coincide con el total de denominaciones (${total_denominaciones:.2f})")
 
-        # Obtener totales incluyendo egresos
         totales_con_egresos = CajaService.obtener_totales_con_egresos(db, caja.id, caja.fecha_apertura)
-        
-        # Monto esperado = inicial + saldo_neto (ingresos - egresos)
         monto_esperado = float(caja.monto_inicial) + totales_con_egresos["saldo_neto"]
 
         caja.monto_final = monto_final
         caja.fecha_cierre = datetime.now()
         caja.operador_cierre = operador or caja.operador_apertura
-        
-        # Guardar SOLO los ingresos que suman a caja (sin egresos)
         caja.total_parqueo = totales_con_egresos["total_parqueo_efectivo"]
         caja.total_servicios = totales_con_egresos["total_servicios_efectivo"]
         caja.total_ingresos = totales_con_egresos["total_ingresos"]
-        
         caja.monto_esperado = monto_esperado
         caja.diferencia = monto_final - monto_esperado
         caja.estado = EstadoCaja.CERRADA
@@ -323,13 +281,6 @@ class CajaService:
         if denom_dict:
             CajaService.guardar_denominaciones(db, caja.id, 'cierre', denom_dict)
             db.refresh(caja)
-        
-        print(f"✅ Caja cerrada - ID: {caja.id}, Operador: {caja.operador_cierre}")
-        print(f"   Ingresos: ${totales_con_egresos['total_ingresos']:.2f}")
-        print(f"   Egresos: -${totales_con_egresos['total_egresos']:.2f}")
-        print(f"   Saldo neto: ${totales_con_egresos['saldo_neto']:.2f}")
-        print(f"   Monto esperado: ${monto_esperado:.2f}, Monto físico: ${monto_final:.2f}")
-        print(f"   Diferencia: ${caja.diferencia:+.2f}")
         
         return caja
 
@@ -346,30 +297,25 @@ class CajaService:
             return {
                 "caja_abierta": False,
                 "caja_actual": None,
-                # 💰 Ingresos reales (suman a caja)
                 "total_dia_parqueo": 0.0,
                 "total_dia_servicios": 0.0,
                 "total_dia_manuales": 0.0,
                 "total_dia_total": 0.0,
-                # 📊 Estadísticas (no suman a caja)
                 "total_dia_parqueo_tarjeta": 0.0,
                 "total_dia_servicios_tarjeta": 0.0,
+                "total_dia_servicios_transferencia": 0.0,
                 "total_dia_parqueo_total": 0.0,
                 "total_dia_servicios_total": 0.0,
-                # 💰 Egresos y saldo neto
                 "total_dia_egresos": 0.0,
                 "saldo_neto": 0.0,
-                "saldo_actual": 0.0,  # ✅ NUEVO
+                "saldo_actual": 0.0,
                 "monto_esperado": 0.0,
-                # 💵 Denominaciones
                 "denominaciones_apertura": [],
                 "total_denominaciones_apertura": 0.0,
             }
         
-        # Obtener totales de ingresos (parqueo efectivo + servicios efectivo + manuales)
         totales = CajaService.obtener_totales_desde_caja(db, caja.id, caja.fecha_apertura)
         
-        # ✅ Obtener total de egresos
         from app.modelos.egreso_caja import EgresoCaja
         total_egresos = db.query(
             func.sum(EgresoCaja.monto)
@@ -377,42 +323,28 @@ class CajaService:
             EgresoCaja.caja_id == caja.id
         ).scalar() or 0
         
-        # ✅ Calcular saldo neto (ingresos - egresos)
         saldo_neto = totales["total_ingresos"] - float(total_egresos)
-        
-        # ✅ Calcular saldo actual en caja (inicial + ingresos - egresos)
         saldo_actual = float(caja.monto_inicial) + saldo_neto
-        
-        # ✅ Monto esperado = saldo_actual (es lo mismo)
         monto_esperado = saldo_actual
         
-        # Obtener denominaciones de apertura
         denominaciones = CajaService.obtener_denominaciones(db, caja.id)
 
         return {
             "caja_abierta": True,
             "caja_actual": caja.to_dict(),
-            
-            # 💰 INGRESOS REALES - ESTOS SUMAN A CAJA
             "total_dia_parqueo": totales["total_parqueo_efectivo"],
             "total_dia_servicios": totales["total_servicios_efectivo"],
             "total_dia_manuales": totales["total_manuales"],
             "total_dia_total": totales["total_ingresos"],
-            
-            # 📊 ESTADÍSTICAS - SOLO INFORMATIVO (NO SUMAN A CAJA)
             "total_dia_parqueo_tarjeta": totales["total_parqueo_tarjeta"],
             "total_dia_servicios_tarjeta": totales["total_servicios_tarjeta"],
+            "total_dia_servicios_transferencia": totales.get("total_servicios_transferencia", 0),
             "total_dia_parqueo_total": totales["total_parqueo_total"],
             "total_dia_servicios_total": totales["total_servicios_total"],
-            
-            # 💰 EGRESOS Y SALDO NETO
-            "total_dia_egresos": float(total_egresos),  # ✅ CAMBIADO: usar total_egresos calculado
-            "saldo_neto": saldo_neto,                   # ✅ CAMBIADO: usar saldo_neto calculado
-            "saldo_actual": saldo_actual,               # ✅ NUEVO: saldo real en caja
-            
-            "monto_esperado": monto_esperado,           # ✅ CAMBIADO: ahora es igual a saldo_actual
-            
-            # 💵 DENOMINACIONES DE APERTURA
+            "total_dia_egresos": float(total_egresos),
+            "saldo_neto": saldo_neto,
+            "saldo_actual": saldo_actual,
+            "monto_esperado": monto_esperado,
             "denominaciones_apertura": denominaciones['apertura'],
             "total_denominaciones_apertura": denominaciones['total_apertura'],
         }
@@ -453,16 +385,11 @@ class CajaService:
         resultado = []
         for caja in cajas:
             caja_dict = caja.to_dict()
-            
-            # Agregar denominaciones
             denominaciones = CajaService.obtener_denominaciones(db, caja.id)
             caja_dict['denominaciones'] = denominaciones
-            
-            # Agregar egresos
             egresos = CajaService.obtener_egresos_caja(db, caja.id)
             caja_dict['egresos'] = egresos
             caja_dict['total_egresos'] = sum(e['monto'] for e in egresos)
-            
             resultado.append(caja_dict)
         
         return resultado
@@ -492,8 +419,6 @@ class CajaService:
         db.commit()
         db.refresh(movimiento)
         
-        print(f"💰 Efectivo manual agregado - Caja: {caja.id}, Monto: +${monto:.2f}, Operador: {operador}")
-        
         return movimiento.to_dict()
 
     # =========================================
@@ -502,9 +427,7 @@ class CajaService:
 
     @staticmethod
     def registrar_egreso(db: Session, caja_id: int, monto: float, descripcion: str, operador: str) -> dict:
-        """
-        Registra un retiro/egreso de efectivo de la caja actual
-        """
+        """Registra un retiro/egreso de efectivo de la caja actual"""
         from app.modelos.egreso_caja import EgresoCaja
         
         caja = db.query(Caja).filter(Caja.id == caja_id, Caja.estado == EstadoCaja.ABIERTA).first()
@@ -514,11 +437,9 @@ class CajaService:
         if monto <= 0:
             raise ValueError("El monto debe ser mayor a 0")
         
-        # Verificar que haya suficiente efectivo
         totales = CajaService.obtener_totales_desde_caja(db, caja.id, caja.fecha_apertura)
         saldo_actual = float(caja.monto_inicial) + totales["total_ingresos"]
         
-        # Obtener egresos ya registrados
         egresos_previos = db.query(func.sum(EgresoCaja.monto)).filter(
             EgresoCaja.caja_id == caja_id
         ).scalar() or 0
@@ -540,8 +461,6 @@ class CajaService:
         db.commit()
         db.refresh(egreso)
         
-        print(f"💰 Egreso registrado - Caja: {caja_id}, Monto: -${monto:.2f}, Motivo: {descripcion}, Operador: {operador}")
-        
         return egreso.to_dict()
 
     @staticmethod
@@ -560,17 +479,14 @@ class CajaService:
         """Obtiene totales incluyendo egresos"""
         from app.modelos.egreso_caja import EgresoCaja
         
-        # Obtener totales de ingresos
         totales = CajaService.obtener_totales_desde_caja(db, caja_id, fecha_apertura)
         
-        # Obtener total de egresos
         total_egresos = db.query(
             func.sum(EgresoCaja.monto)
         ).filter(
             EgresoCaja.caja_id == caja_id
         ).scalar() or 0
         
-        # Saldo neto = ingresos - egresos
         saldo_neto = totales["total_ingresos"] - float(total_egresos)
         
         return {
@@ -585,19 +501,16 @@ class CajaService:
 
     @staticmethod
     def obtener_movimientos_dia(db: Session) -> dict:
-        """
-        Obtiene todos los movimientos de la caja actual 
-        (parqueo, servicios, manuales, egresos)
-        """
+        """Obtiene todos los movimientos de la caja actual (parqueo, servicios, manuales, egresos)"""
         caja = CajaService.verificar_caja_abierta(db)
         movimientos = []
         
-        # Si no hay caja abierta, devolver lista vacía
         if not caja:
             return {
                 "movimientos": [],
                 "total_efectivo": 0.0,
                 "total_tarjeta": 0.0,
+                "total_transferencia": 0.0,
                 "total_egresos": 0.0,
                 "saldo_neto": 0.0,
                 "total_movimientos": 0
@@ -605,9 +518,7 @@ class CajaService:
         
         fecha_apertura = caja.fecha_apertura
 
-        # =========================================
-        # ✅ PARQUEO - TODOS (efectivo y tarjeta)
-        # =========================================
+        # PARQUEO
         facturas = db.query(HistorialFactura).filter(
             and_(
                 HistorialFactura.fecha_hora_salida >= fecha_apertura,
@@ -627,9 +538,7 @@ class CajaService:
                 "suma_a_caja": metodo_pago == "efectivo"
             })
 
-        # =========================================
-        # ✅ SERVICIOS - TODOS (efectivo y tarjeta)
-        # =========================================
+        # SERVICIOS
         ventas = db.query(VentaServicio).filter(
             VentaServicio.fecha >= fecha_apertura
         ).order_by(VentaServicio.fecha.desc()).all()
@@ -643,12 +552,10 @@ class CajaService:
                 "monto": float(v.total),
                 "metodo_pago": v.metodo_pago or "efectivo",
                 "fecha": v.fecha.isoformat(),
-                "suma_a_caja": v.metodo_pago != "tarjeta"
+                "suma_a_caja": v.metodo_pago == "efectivo"  # ✅ SOLO efectivo suma a caja
             })
 
-        # =========================================
-        # ✅ MANUALES - TODOS (siempre suman a caja)
-        # =========================================
+        # MANUALES
         try:
             manuales = db.query(MovimientoManualCaja).filter(
                 MovimientoManualCaja.caja_id == caja.id
@@ -661,26 +568,24 @@ class CajaService:
         except:
             pass
 
-        # =========================================
-        # ✅ EGRESOS - TODOS (siempre restan de caja)
-        # =========================================
+        # EGRESOS
         try:
             egresos = CajaService.obtener_egresos_caja(db, caja.id)
             for e in egresos:
-                e["suma_a_caja"] = False  # No suma, resta
-                e["monto"] = -abs(e["monto"])  # Monto negativo
+                e["suma_a_caja"] = False
+                e["monto"] = -abs(e["monto"])
                 movimientos.append(e)
         except:
             pass
 
-        # Ordenar por fecha, más reciente primero
         movimientos.sort(key=lambda x: x["fecha"], reverse=True)
         
-        # Calcular totales
         total_efectivo = sum(m["monto"] for m in movimientos 
                            if m.get("suma_a_caja") == True and m["monto"] > 0)
         total_tarjeta = sum(m["monto"] for m in movimientos 
                           if m.get("metodo_pago") == "tarjeta")
+        total_transferencia = sum(m["monto"] for m in movimientos 
+                                if m.get("metodo_pago") == "transferencia")
         total_egresos = abs(sum(m["monto"] for m in movimientos 
                               if m.get("tipo") == "egreso"))
         saldo_neto = total_efectivo - total_egresos
@@ -689,7 +594,106 @@ class CajaService:
             "movimientos": movimientos,
             "total_efectivo": total_efectivo,
             "total_tarjeta": total_tarjeta,
+            "total_transferencia": total_transferencia,
             "total_egresos": total_egresos,
             "saldo_neto": saldo_neto,
             "total_movimientos": len(movimientos),
         }
+    
+    # =========================================
+    # NUEVO - Obtener movimientos de una caja específica (para historial)
+    # =========================================
+
+    @staticmethod
+    def obtener_movimientos_por_caja(db: Session, caja_id: int, fecha_apertura: datetime) -> list:
+        """Obtiene todos los movimientos de una caja específica (para historial)"""
+        from app.modelos.egreso_caja import EgresoCaja
+        from app.modelos.movimiento_manual import MovimientoManualCaja
+        
+        movimientos = []
+        
+        # Definir fecha límite (hasta el cierre o hasta ahora)
+        caja = db.query(Caja).filter(Caja.id == caja_id).first()
+        fecha_limite = caja.fecha_cierre if caja.fecha_cierre else datetime.now()
+
+        # PARQUEO
+        facturas = db.query(HistorialFactura).filter(
+            and_(
+                HistorialFactura.fecha_hora_salida >= fecha_apertura,
+                HistorialFactura.fecha_hora_salida <= fecha_limite,
+                HistorialFactura.es_no_pagado == False
+            )
+        ).order_by(HistorialFactura.fecha_hora_salida.desc()).all()
+
+        for f in facturas:
+            metodo_pago = getattr(f, 'metodo_pago', 'efectivo')
+            movimientos.append({
+                "id": f"parqueo-{f.id}",
+                "tipo": "parqueo",
+                "descripcion": f"Parqueo {f.placa}",
+                "monto": float(f.costo_total),
+                "metodo_pago": metodo_pago,
+                "fecha": f.fecha_hora_salida.isoformat(),
+                "suma_a_caja": metodo_pago == "efectivo"
+            })
+
+        # SERVICIOS
+        ventas = db.query(VentaServicio).filter(
+            and_(
+                VentaServicio.fecha >= fecha_apertura,
+                VentaServicio.fecha <= fecha_limite
+            )
+        ).order_by(VentaServicio.fecha.desc()).all()
+
+        for v in ventas:
+            nombres = ", ".join(i.nombre_producto for i in v.items) if v.items else "Servicio"
+            movimientos.append({
+                "id": f"servicio-{v.id}",
+                "tipo": "servicio",
+                "descripcion": nombres,
+                "monto": float(v.total),
+                "metodo_pago": v.metodo_pago or "efectivo",
+                "fecha": v.fecha.isoformat(),
+                "suma_a_caja": v.metodo_pago == "efectivo"
+            })
+
+        # MANUALES
+        try:
+            manuales = db.query(MovimientoManualCaja).filter(
+                MovimientoManualCaja.caja_id == caja_id
+            ).order_by(MovimientoManualCaja.fecha.desc()).all()
+
+            for m in manuales:
+                movimientos.append({
+                    "id": f"manual-{m.id}",
+                    "tipo": "efectivo_manual",
+                    "descripcion": m.descripcion,
+                    "monto": float(m.monto),
+                    "metodo_pago": "efectivo",
+                    "fecha": m.fecha.isoformat(),
+                    "suma_a_caja": True
+                })
+        except:
+            pass
+
+        # EGRESOS
+        try:
+            egresos = db.query(EgresoCaja).filter(
+                EgresoCaja.caja_id == caja_id
+            ).order_by(EgresoCaja.fecha.desc()).all()
+            
+            for e in egresos:
+                movimientos.append({
+                    "id": f"egreso-{e.id}",
+                    "tipo": "egreso",
+                    "descripcion": e.descripcion,
+                    "monto": -float(e.monto),
+                    "metodo_pago": "efectivo",
+                    "fecha": e.fecha.isoformat(),
+                    "suma_a_caja": False
+                })
+        except:
+            pass
+
+        movimientos.sort(key=lambda x: x["fecha"], reverse=True)
+        return movimientos

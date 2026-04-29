@@ -1,6 +1,10 @@
 # app/routers/venta_servicio_routes.py
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import and_
+from datetime import datetime, date, timedelta
+from typing import List, Optional
+
 from app.config import get_db
 from app.servicios.venta_servicio_service import VentaServicioService
 from app.esquemas.venta_servicio_schema import (
@@ -8,7 +12,7 @@ from app.esquemas.venta_servicio_schema import (
     VentaServicioResponse,
     ReporteVentasResponse,
 )
-from typing import List, Optional
+from app.modelos.venta_servicio import VentaServicio
 
 router = APIRouter(
     prefix="/api/ventas-servicios",
@@ -18,12 +22,7 @@ router = APIRouter(
 
 @router.post("/", response_model=VentaServicioResponse, status_code=status.HTTP_201_CREATED)
 async def crear_venta(datos: VentaServicioCreate, db: Session = Depends(get_db)):
-    """
-    Crear nueva venta. Acepta mezcla de:
-    - Productos del catálogo: { producto_id, cantidad }
-    - Baño: { tipo_especial: "bano", personas }
-    - Hotel: { tipo_especial: "hotel", habitacion, monto_hotel }
-    """
+    """Crear nueva venta"""
     try:
         items_data = [item.dict() for item in datos.items]
         venta = VentaServicioService.crear_venta(db, items_data, datos.metodo_pago)
@@ -37,15 +36,46 @@ async def crear_venta(datos: VentaServicioCreate, db: Session = Depends(get_db))
         )
 
 
-@router.get("/reporte/diario", response_model=ReporteVentasResponse)
+# ✅ IMPORTANTE: El endpoint /test debe ir ANTES de /reporte/diario y /{venta_id}
+@router.get("/test")
+async def test_endpoint():
+    """Endpoint de prueba"""
+    return {"message": "Servidor funcionando correctamente"}
+
+
+@router.get("/reporte/diario")
 async def obtener_reporte_diario(
-    fecha: Optional[str] = None,
+    fecha: Optional[str] = Query(None, description="Fecha específica YYYY-MM-DD"),
+    fecha_inicio: Optional[str] = Query(None, description="Fecha inicio YYYY-MM-DD"),
+    fecha_fin: Optional[str] = Query(None, description="Fecha fin YYYY-MM-DD"),
     db: Session = Depends(get_db),
 ):
-    """Reporte del día (efectivo, tarjeta, por categoría)"""
+    """
+    Reporte de ventas. Puede ser:
+    - Por día específico: ?fecha=2024-01-01
+    - Por rango de fechas: ?fecha_inicio=2024-01-01&fecha_fin=2024-01-31
+    - Día actual: sin parámetros
+    """
+    print(f"🔍 Reporte llamado - fecha: {fecha}, fecha_inicio: {fecha_inicio}, fecha_fin: {fecha_fin}")
+    
     try:
-        return VentaServicioService.obtener_reporte_diario(db, fecha)
+        if fecha_inicio and fecha_fin:
+            inicio = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
+            fin = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
+            resultado = VentaServicioService.obtener_reporte_por_rango(db, inicio, fin)
+            return resultado
+        elif fecha:
+            fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
+            resultado = VentaServicioService.obtener_reporte_por_rango(db, fecha_obj, fecha_obj)
+            return resultado
+        else:
+            hoy = date.today()
+            resultado = VentaServicioService.obtener_reporte_por_rango(db, hoy, hoy)
+            return resultado
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Formato de fecha inválido: {str(e)}")
     except Exception as e:
+        print(f"❌ Error en reporte: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al obtener reporte: {str(e)}",
